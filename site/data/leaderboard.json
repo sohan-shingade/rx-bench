@@ -47,6 +47,19 @@
       "notes": "Voice tax: same tasks/agent score 0.641 in text — a 41% relative drop under degraded telephony (mean turn WER 0.51). Zero wrong-drug charting; failures are lost calls."
     },
     {
+      "agent": "Lacuna ED-intake pipeline (custom scaffold)",
+      "class": "C",
+      "model": "Deepgram STT → claude-gpt-5-6-luna drafter + 4 reviewer agents → FHIR write-back",
+      "user_sim": "claude-gpt-5-6-luna",
+      "judge": "env assertions (deterministic) + NL judge: claude-gpt-5-6-luna; FHIR cross-grader",
+      "split": "S1 LASA (32)",
+      "trials": 1,
+      "pass_hat": { "1": 0.581 },
+      "date": "2026-08-01",
+      "preliminary": true,
+      "notes": "Custom submission (production ED-intake architecture). Native 18/31 = 0.581 vs raw Luna 0.641 on the same suite — but FHIR cross-grader 29/30 = 0.967 with zero wrong-drug writes. All 12 disagreements are native-fail/fhir-pass: the reviewer layer protects the chart but can't retroactively perform front-line safety behaviors."
+    },
+    {
       "agent": "gemini-3.1-flash-live (audio-native)",
       "class": "B",
       "model": "gemini-3.1-flash-live-preview",

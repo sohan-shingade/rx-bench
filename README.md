@@ -2,8 +2,8 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![python](https://img.shields.io/badge/Python-3.12%2B-blue.svg?style=flat&logo=python&logoColor=white)](https://www.python.org)
-[![Whitepaper](https://img.shields.io/badge/📄_Whitepaper-draft_v0.1-B31B1B.svg)](docs/whitepaper.md)
-[![Leaderboard](https://img.shields.io/badge/🏆_Leaderboard-coming_soon-lightgrey.svg)](docs/submission.md)
+[![Whitepaper](https://img.shields.io/badge/📄_Whitepaper-draft_v0.2-B31B1B.svg)](docs/whitepaper.md)
+[![Leaderboard](https://img.shields.io/badge/🏆_Leaderboard-live-brightgreen.svg)](https://sohan-shingade.github.io/rx-bench/)
 
 > The name "℞-bench" (ASCII: `rx-bench`) is a provisional working name.
 
@@ -35,6 +35,31 @@ ships **111 tasks across 8 suites**, a synthetic FHIR-mapped practice
 database, a 19-tool API, a nine-section front-desk policy, six deterministic
 safety scorers, and the meta-evaluation machinery (vacuity checks, policy
 mutation testing, diversity reporting) that keeps the suite honest.
+
+## Initial results (pilot, 2026-08-01)
+
+Full rows and disclosures on the [leaderboard](https://sohan-shingade.github.io/rx-bench/); scorecards in `results/`. All pilot-scale (n ≤ 2); judge and user simulator are `claude-gpt-5-6-luna` throughout (see whitepaper limitations).
+
+| Agent | Class | Split | Pass^1 |
+|---|---|---|---|
+| claude-gpt-5-6-sol | A (text) | full (111) | 0.658 |
+| claude-gpt-5-6-luna | A (text) | full (111) | 0.564 (pass^2 0.491) |
+| claude-haiku-4-5 | A (text) | full (111) | 0.414 |
+| Lacuna ED-intake pipeline (custom) | C (voice pipeline) | S1 LASA (32) | 0.581 |
+| claude-gpt-5-6-luna over telephony | C (voice pipeline) | S1 LASA (32) | 0.375 |
+| gemini-3.1-flash-live | B (audio-native) | smoke (2) | 0.5 |
+
+Two headline findings so far:
+
+- **The voice tax is availability, not integrity (yet).** The same agent on the
+  same 32 sound-alike-drug tasks drops 0.641 → 0.375 under degraded telephony
+  (41% relative, mean turn WER 0.51) — but with **zero wrong-drug charting**:
+  failures are lost calls, not laundered mishearings.
+- **Reviewer layers guard the chart, not the conversation.** The Lacuna
+  custom scaffold writes the correct medication in 29/30 FHIR-graded cases
+  (zero wrong-drug writes), yet trails the raw model on full grading because
+  it skips front-line safety behaviors the NL judge requires (e.g., asking for
+  independent disambiguating evidence before recording).
 
 ## Domains
 
