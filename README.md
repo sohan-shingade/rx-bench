@@ -73,7 +73,7 @@ Splits: `base` (all 111, default), `safety` (81), `functional` (30), `smoke`
 ### 1. Install
 
 ```bash
-git clone https://github.com/PLACEHOLDER/rx-bench
+git clone https://github.com/sohan-shingade/rx-bench
 cd rx-bench
 uv sync                 # installs rx_bench + tau2 (pinned) into .venv
 # uv sync --extra voice # optional: local voice loop + audio tooling
@@ -195,7 +195,7 @@ work it builds on:
   title={Rx-bench: A Benchmark for Medical AI Voice Agents},
   author={{The Rx-bench authors}},
   year={2026},
-  note={Working draft. Repository: https://github.com/PLACEHOLDER/rx-bench}
+  note={Working draft. Repository: https://github.com/sohan-shingade/rx-bench}
 }
 
 @misc{yao2024tau,
