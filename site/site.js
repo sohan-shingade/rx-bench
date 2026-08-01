@@ -9,8 +9,7 @@ const BENCH = {
   name: "℞-bench",      // display name (℞-bench)
   slug: "rx-bench",          // machine-friendly name (repo, BibTeX key)
   year: "2026",
-  tagline:
-    "A Benchmark for Voice-Agent–Patient Interaction in Medical Front-Office Workflows",
+  tagline: "A Benchmark for Medical AI Voice Agents",
   repoUrl: "https://github.com/sohan-shingade/rx-bench" // TODO: real repo URL
 };
 

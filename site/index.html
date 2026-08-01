@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <!-- RENAME POINT: benchmark name appears literally only in <title> and the
        meta description below; everything else is filled from BENCH in site.js. -->
-  <title>℞-bench — A Benchmark for Voice-Agent–Patient Interaction in Medical Front-Office Workflows</title>
-  <meta name="description" content="℞-bench scores the chart, not the conversation: FHIR-verified evaluation of voice agents in medical front-office workflows.">
+  <title>℞-bench — A Benchmark for Medical AI Voice Agents</title>
+  <meta name="description" content="℞-bench scores the chart, not the conversation: FHIR-verified evaluation of patient-facing medical AI voice agents.">
   <link rel="stylesheet" href="style.css">
   <script src="site.js" defer></script>
 </head>
@@ -29,7 +29,7 @@
   <section class="hero">
     <div class="container">
       <h1 class="bench-name">Benchmark</h1>
-      <p class="tagline">A Benchmark for Voice-Agent–Patient Interaction in Medical Front-Office Workflows</p>
+      <p class="tagline">A Benchmark for Medical AI Voice Agents</p>
       <p class="pitch">
         Voice agents launder uncertainty into the medical record: a mumbled drug
         name, a mis-heard dose, or a confidently wrong confirmation becomes a
@@ -38,6 +38,13 @@
         with FHIR-verified outcomes, reliability measured as pass^k over repeated
         i.i.d. trials, and dedicated safety scorers for the failure modes that
         matter in a clinic. It scores the chart, not the conversation.
+      </p>
+      <p class="pitch">
+        The first domain covers medical front-office phone workflows
+        (scheduling, refills, messages, identity verification, escalation);
+        emergency-department intake, symptom triage, and post-discharge
+        follow-up are on the domain roadmap. The benchmark's motivating
+        application is the development of an ED intake agent.
       </p>
       <div class="cta-row">
         <a class="btn btn-primary" href="leaderboard.html">View leaderboard</a>

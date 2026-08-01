@@ -1,4 +1,4 @@
-# ℞-bench: A Benchmark for Voice-Agent–Patient Interaction in Medical Front-Office Workflows
+# ℞-bench: A Benchmark for Medical AI Voice Agents
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![python](https://img.shields.io/badge/Python-3.12%2B-blue.svg?style=flat&logo=python&logoColor=white)](https://www.python.org)
@@ -7,13 +7,18 @@
 
 > The name "℞-bench" (ASCII: `rx-bench`) is a provisional working name.
 
-Voice agents are answering medical front-office phone lines today: scheduling
+℞-bench evaluates **patient-facing medical AI voice agents**: systems that
+talk to patients, use tools, and write to the medical record. Voice agents
+are already answering clinic phone lines and intake desks today — scheduling
 appointments, routing refills, recording reported medications, triaging
 emergencies. The distinctive risk of the voice modality is that speech is
 uncertain and medical vocabulary is adversarially confusable — and an agent
 that mishears, guesses, and commits the guess to the chart has converted a
 low-confidence acoustic token into a trusted clinical fact. We call this
 failure mode **uncertainty laundering**, and ℞-bench exists to measure it.
+(The benchmark's motivating application is the development of an emergency
+department intake agent; the same failure modes govern every patient-facing
+voice workflow.)
 
 The design principle throughout: **score the chart, not the conversation.** A
 transcript can read as fluent and careful while the committed record is wrong.
@@ -22,16 +27,29 @@ chart was touched, what medication name and dose were written, whether an
 escalation was filed — with natural-language assertions on the dialogue as a
 secondary, conjunctive check.
 
-℞-bench is implemented as a `medical_reception` domain for
+℞-bench is built as a family of domains on
 [τ²-bench](https://github.com/sierra-research/tau2-bench) and inherits its
 orchestrator, task schema, user simulator, and evaluators unmodified (the
-τ³ voice/full-duplex stack included). It ships **111 tasks across 8 suites**, a
-synthetic FHIR-mapped practice database, a 19-tool API, a nine-section
-front-desk policy, six deterministic safety scorers, and the meta-evaluation
-machinery (vacuity checks, policy mutation testing, diversity reporting) that
-keeps the suite honest.
+τ³ voice/full-duplex stack included). The first domain, `medical_reception`,
+ships **111 tasks across 8 suites**, a synthetic FHIR-mapped practice
+database, a 19-tool API, a nine-section front-desk policy, six deterministic
+safety scorers, and the meta-evaluation machinery (vacuity checks, policy
+mutation testing, diversity reporting) that keeps the suite honest.
 
-## Task suites
+## Domains
+
+| Domain | Status | Scope |
+|---|---|---|
+| `medical_reception` | **v1, shipping** | front-office phone workflows: scheduling, refills, messages, identity verification, escalation |
+| `ed_intake` | roadmap | emergency-department / urgent-care intake: chief complaint capture, acuity-relevant history, red-flag escalation |
+| `triage` | roadmap | symptom triage and disposition over the phone |
+| `post_discharge` | roadmap | follow-up calls: medication reconciliation, warning-sign checks |
+
+τ-bench launched with retail and airline and grew from there; ℞-bench follows
+the same pattern — one rigorously validated domain first, with the task
+schema, scorers, and voice stack designed to carry the roadmap domains.
+
+## Task suites (`medical_reception`)
 
 | Suite | Prefix | Tasks | What it measures |
 |---|---|---:|---|
@@ -174,8 +192,7 @@ work it builds on:
 
 ```bibtex
 @misc{rxbench2026,
-  title={Rx-bench: A Benchmark for Voice-Agent--Patient Interaction in
-         Medical Front-Office Workflows},
+  title={Rx-bench: A Benchmark for Medical AI Voice Agents},
   author={{The Rx-bench authors}},
   year={2026},
   note={Working draft. Repository: https://github.com/PLACEHOLDER/rx-bench}

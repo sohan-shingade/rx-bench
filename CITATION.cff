@@ -2,7 +2,7 @@ cff-version: 1.2.0
 message: >-
   If you use this benchmark, please cite it as below, and please also cite the
   tau-bench / tau2-bench / tau-voice papers listed in the README.
-title: "℞-bench: A Benchmark for Voice-Agent–Patient Interaction in Medical Front-Office Workflows"
+title: "℞-bench: A Benchmark for Medical AI Voice Agents"
 authors:
   - name: "The ℞-bench authors"
 type: software

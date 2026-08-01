@@ -1,7 +1,7 @@
 [project]
 name = "rx-bench"
 version = "0.1.0"
-description = "A benchmark for voice-agent-patient interaction in medical front-office workflows, built on tau2-bench"
+description = "A benchmark for patient-facing medical AI voice agents, built on tau2-bench (first domain: medical front-office workflows)"
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.12,<3.14"

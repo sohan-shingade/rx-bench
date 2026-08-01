@@ -1,6 +1,6 @@
 <!-- Working name "℞-bench" (ASCII: rx-bench) is PROVISIONAL and subject to change before publication. -->
 
-# ℞-bench: A Benchmark for Voice-Agent–Patient Interaction in Medical Front-Office Workflows
+# ℞-bench: A Benchmark for Medical AI Voice Agents
 
 **Whitepaper — draft v0.2 (August 2026)**
 
@@ -8,9 +8,9 @@
 
 ## Abstract
 
-Voice agents are being deployed to answer medical front-office phone lines: scheduling appointments, routing refill requests, recording reported medications, and triaging emergencies. Existing benchmarks evaluate either conversational medical competence in text, tool-using agents in non-medical domains, or spoken-language understanding without tools. None evaluates what these deployments actually risk: an agent that mishears, guesses, and commits the guess to a medical record with the full authority of structured data. We call this failure mode *uncertainty laundering* — the conversion of a low-confidence acoustic guess into a trusted clinical fact — and we present ℞-bench, a benchmark built to measure it.
+℞-bench is a benchmark for patient-facing medical AI voice agents: systems that converse with patients, use tools, and write to the medical record. Such agents are being deployed today across clinical workflows — answering front-office phone lines, scheduling appointments, routing refill requests, recording reported medications, conducting intake, and triaging emergencies. Existing benchmarks evaluate either conversational medical competence in text, tool-using agents in non-medical domains, or spoken-language understanding without tools. None evaluates what these deployments actually risk: an agent that mishears, guesses, and commits the guess to a medical record with the full authority of structured data. We call this failure mode *uncertainty laundering* — the conversion of a low-confidence acoustic guess into a trusted clinical fact — and we present ℞-bench, a benchmark built to measure it.
 
-℞-bench makes four contributions. **(1)** A `medical_reception` domain for the τ²-bench framework: a synthetic primary-care practice with a FHIR-mapped database, a 19-tool API, a nine-section front-desk policy document, and 111 tasks across eight suites targeting look-alike/sound-alike (LASA) drug confusions, planted ASR errors, identity-verification attacks, drug-seeking social engineering, emergency escalation, regulatory disclosure, and caller effort. **(2)** A scoring stack that grades the *committed record*, not the conversation: alongside τ²-bench environment assertions, six deterministic scorers measure readback discipline, false confirmation, drug-entity substitution, provenance of chart facts, pressure-induced concession, and redundant caller effort. **(3)** Meta-evaluation machinery unusual for agent benchmarks: vacuity checks that reject tasks a silent agent would pass, policy mutation testing that verifies each policy rule is actually load-bearing in the task set, and paired positive/control tasks that separate safe behavior from indiscriminate caution. **(4)** A two-tier execution model in which every task is authored once and rendered either as a corrupted transcript with synthetic word confidences (Tier T) or as degraded audio through a full ASR pipeline (Tier A), enabling attribution of end-to-end failures to the ear or to the agent.
+℞-bench makes four contributions. **(1)** Its first domain, `medical_reception`, built on the τ²-bench framework: a synthetic primary-care practice with a FHIR-mapped database, a 19-tool API, a nine-section front-desk policy document, and 111 tasks across eight suites targeting look-alike/sound-alike (LASA) drug confusions, planted ASR errors, identity-verification attacks, drug-seeking social engineering, emergency escalation, regulatory disclosure, and caller effort. **(2)** A scoring stack that grades the *committed record*, not the conversation: alongside τ²-bench environment assertions, six deterministic scorers measure readback discipline, false confirmation, drug-entity substitution, provenance of chart facts, pressure-induced concession, and redundant caller effort. **(3)** Meta-evaluation machinery unusual for agent benchmarks: vacuity checks that reject tasks a silent agent would pass, policy mutation testing that verifies each policy rule is actually load-bearing in the task set, and paired positive/control tasks that separate safe behavior from indiscriminate caution. **(4)** A two-tier execution model in which every task is authored once and rendered either as a corrupted transcript with synthetic word confidences (Tier T) or as degraded audio through a full ASR pipeline (Tier A), enabling attribution of end-to-end failures to the ear or to the agent.
 
 The unit of evaluation is an agent *system*, not only a model: submissions fall into three disclosed classes — off-the-shelf models in the standard text-tier scaffold (Class A), audio-native realtime models in the full-duplex voice loop (Class B), and composed ASR→LLM→TTS pipeline agents (Class C) — so the benchmark can compare models with models and architectures with architectures on identical tasks (§3.4).
 
@@ -20,7 +20,7 @@ A baseline model (Class A) passes 49.5% of tasks (pass^1, single trial), with pr
 
 ## 1. Introduction
 
-Benchmarks of medical knowledge are saturated: frontier models now exceed 90% on USMLE-style question sets such as MedQA. Yet static accuracy is a poor proxy for the setting in which language models are actually entering medicine first — not diagnosis, but the *front office*. Medical reception is the highest-volume, lowest-supervision interface between patients and health systems, and it is being automated with voice agents today. The work is clerical, but the failure modes are clinical: a refill routed for the wrong drug, an appointment booked for the wrong patient, an emergency symptom mentioned mid-call and not escalated.
+Benchmarks of medical knowledge are saturated: frontier models now exceed 90% on USMLE-style question sets such as MedQA. Yet static accuracy is a poor proxy for the setting in which language models are actually entering medicine first — not diagnosis, but the *patient-facing voice interface*: front-office phone lines, intake desks, and triage calls. ℞-bench targets this class of systems as a whole; its motivating application is the development of an emergency-department intake agent, and its first domain covers medical reception — the highest-volume, lowest-supervision interface between patients and health systems, already being automated with voice agents today. The work is clerical, but the failure modes are clinical: a refill routed for the wrong drug, an appointment booked for the wrong patient, an emergency symptom mentioned mid-call and not escalated. The same failure modes govern every patient-facing voice workflow, which is why the benchmark's schema, scorers, and voice stack are designed to carry additional domains (§7).
 
 The distinctive risk of the voice modality is that speech recognition is uncertain and medical vocabulary is adversarially confusable. "Hydroxyzine" (an antihistamine) and "hydralazine" (an antihypertensive) differ by two phonemes; so do dozens of drug pairs on published look-alike/sound-alike lists. A text agent that receives "hydralazine" received it; a voice agent that hears "hydralazine" at word confidence 0.51 is holding a guess. The central thesis of ℞-bench is that **voice agents launder uncertainty into the medical record**: the low-confidence token enters the conversation, survives the dialogue unexamined, and exits as a structured `MedicationStatement` indistinguishable from verified fact. Downstream clinicians inherit the error with none of the doubt.
 
@@ -247,7 +247,9 @@ The LASA suite is the benchmark's flagship voice-fragile task class for a struct
 
 **Synthetic scale.** Seven patients and four providers make a legible instrument, not a stress test of retrieval at clinic scale; conclusions transfer to the behaviors tested, not to database-scale performance.
 
-**Not a clinical evaluation.** ℞-bench measures administrative safety behaviors of front-office agents. It does not evaluate diagnosis, treatment, or medical advice, and a high score is not evidence of fitness for production clinical deployment.
+**Not a clinical evaluation.** The current domain measures administrative safety behaviors of front-office agents. It does not evaluate diagnosis, treatment, or medical advice, and a high score is not evidence of fitness for production clinical deployment.
+
+**Future domains.** ℞-bench is scoped as a benchmark for patient-facing medical voice agents generally; `medical_reception` is its first domain, following the τ-bench precedent of launching with a small number of rigorously validated domains and growing. The roadmap, ordered by the motivating application, is: emergency-department / urgent-care intake (chief-complaint capture, acuity-relevant history, red-flag escalation under time pressure), telephone symptom triage and disposition, and post-discharge follow-up (medication reconciliation, warning-sign checks). Each reuses the task schema, agent classes, safety scorers, and meta-evaluation machinery unchanged; what a new domain requires is a policy document, a fixture database with domain-appropriate traps, and a task set that survives vacuity and mutation testing.
 
 ## 8. Ethics and Safety Statement
 
@@ -317,8 +319,7 @@ All patients, providers, charts, phone numbers, audio, and identifiers in ℞-be
 
 ```bibtex
 @misc{rxbench2026,
-      title={{\rx}-bench: A Benchmark for Voice-Agent--Patient Interaction
-             in Medical Front-Office Workflows},
+      title={{\rx}-bench: A Benchmark for Medical AI Voice Agents},
       author={[authors pending]},
       year={2026},
       eprint={26XX.XXXXX},
