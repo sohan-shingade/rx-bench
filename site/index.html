@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- RENAME POINT: benchmark name appears literally only in <title> and the
+       meta description below; everything else is filled from BENCH in site.js. -->
+  <title>℞-bench — A Benchmark for Voice-Agent–Patient Interaction in Medical Front-Office Workflows</title>
+  <meta name="description" content="℞-bench scores the chart, not the conversation: FHIR-verified evaluation of voice agents in medical front-office workflows.">
+  <link rel="stylesheet" href="style.css">
+  <script src="site.js" defer></script>
+</head>
+<body>
+
+<header class="site-header">
+  <div class="container">
+    <a class="brand bench-name" href="index.html">Benchmark</a>
+    <nav class="site-nav">
+      <a href="leaderboard.html">Leaderboard</a>
+      <a href="docs/whitepaper.pdf">Whitepaper</a>
+      <a href="#" data-repo-link>GitHub</a>
+      <a href="docs/submission.md">Submit</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+
+  <section class="hero">
+    <div class="container">
+      <h1 class="bench-name">Benchmark</h1>
+      <p class="tagline">A Benchmark for Voice-Agent–Patient Interaction in Medical Front-Office Workflows</p>
+      <p class="pitch">
+        Voice agents launder uncertainty into the medical record: a mumbled drug
+        name, a mis-heard dose, or a confidently wrong confirmation becomes a
+        clean-looking chart entry. <span class="bench-name">This benchmark</span>
+        evaluates what actually lands in the record — 111 tasks across 8 suites,
+        with FHIR-verified outcomes, reliability measured as pass^k over repeated
+        i.i.d. trials, and dedicated safety scorers for the failure modes that
+        matter in a clinic. It scores the chart, not the conversation.
+      </p>
+      <div class="cta-row">
+        <a class="btn btn-primary" href="leaderboard.html">View leaderboard</a>
+        <a class="btn" href="docs/whitepaper.pdf">Whitepaper</a>
+        <a class="btn" href="#" data-repo-link>GitHub</a>
+        <a class="btn" href="docs/submission.md">Submit a result</a>
+      </div>
+    </div>
+  </section>
+
+  <div class="container">
+    <div class="stats-strip" aria-label="Key numbers">
+      <div class="stat"><div class="value">111</div><div class="label">tasks</div></div>
+      <div class="stat"><div class="value">8</div><div class="label">suites</div></div>
+      <div class="stat"><div class="value">3</div><div class="label">agent classes</div></div>
+      <div class="stat"><div class="value">4</div><div class="label">safety scorers</div></div>
+    </div>
+  </div>
+
+  <section id="suites">
+    <div class="container">
+      <h2>Task suites</h2>
+      <p class="section-note">
+        111 tasks organized into 8 suites, ordered by size. Each suite targets a
+        distinct way that voice interaction can corrupt the medical record.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Suite</th><th>Focus</th><th class="num">Tasks</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><span class="suite-id">S1</span></td><td>LASA drug sound-alikes (look-alike / sound-alike medications)</td><td class="num">32</td></tr>
+            <tr><td><span class="suite-id">F</span></td><td>Functional front-office workflows</td><td class="num">25</td></tr>
+            <tr><td><span class="suite-id">S2</span></td><td>Planted ASR error</td><td class="num">14</td></tr>
+            <tr><td><span class="suite-id">S4</span></td><td>Emergency escalation</td><td class="num">12</td></tr>
+            <tr><td><span class="suite-id">S7</span></td><td>Drug-seeking behavior</td><td class="num">12</td></tr>
+            <tr><td><span class="suite-id">S3</span></td><td>Adversarial / PHI protection</td><td class="num">8</td></tr>
+            <tr><td><span class="suite-id">E3</span></td><td>Repetition</td><td class="num">5</td></tr>
+            <tr><td><span class="suite-id">S6</span></td><td>Disclosure</td><td class="num">3</td></tr>
+          </tbody>
+          <tfoot>
+            <tr><td>Total</td><td></td><td class="num">111</td></tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section id="metrics">
+    <div class="container">
+      <h2>How agents are scored</h2>
+      <p class="section-note">
+        Outcomes are verified against the FHIR record produced by each episode,
+        not against transcripts. Reliability is reported as pass^k: the
+        probability that an agent succeeds on all k of k i.i.d. trials of a task.
+      </p>
+      <div class="formula">pass^k&nbsp;=&nbsp;E<sub>task</sub>[ C(c, k) / C(n, k) ]&nbsp;&nbsp;&nbsp;(n trials per task, c successes)</div>
+      <ul class="plain">
+        <li><strong>Safety scorers:</strong> false-confirmation rate, provenance violations, LASA substitution rate, readback rate.</li>
+        <li><strong>Infrastructure:</strong> built on Sierra&rsquo;s &tau;&sup2;-bench framework and the &tau;-voice full-duplex stack (MIT license).</li>
+        <li><strong>Meta-evaluation:</strong> policy mutation testing and vacuity checking guard against tasks that pass for the wrong reasons.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="agent-classes">
+    <div class="container">
+      <h2>Agent classes</h2>
+      <p class="section-note">
+        Results are reported per agent class so that text scaffolds, audio-native
+        models, and ASR pipelines are never compared apples-to-oranges.
+      </p>
+      <div class="card-grid">
+        <div class="card">
+          <span class="class-chip">A</span>
+          <h3>Text &middot; standard scaffold</h3>
+          <p>The agent operates over text with the benchmark&rsquo;s standard tool scaffold. Isolates policy and reasoning quality from the audio channel.</p>
+        </div>
+        <div class="card">
+          <span class="class-chip">B</span>
+          <h3>Voice &middot; audio-native</h3>
+          <p>A single audio-native model handles the full-duplex conversation end to end &mdash; no intermediate transcript to hide behind.</p>
+        </div>
+        <div class="card">
+          <span class="class-chip">C</span>
+          <h3>Voice &middot; pipeline (ASR&rarr;LLM&rarr;TTS)</h3>
+          <p>A composed stack of speech recognition, a text model, and speech synthesis &mdash; the dominant production architecture today.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer class="site-footer">
+  <div class="container">
+    <p>If you use <span class="bench-name">this benchmark</span> in your work, please cite:</p>
+    <div class="bibtex-block">
+      <button class="copy-btn" type="button" data-copy-target="bibtex">Copy</button>
+      <pre id="bibtex">(BibTeX loads with JavaScript enabled.)</pre>
+    </div>
+    <p class="footer-meta">
+      Built on Sierra&rsquo;s &tau;&sup2;-bench and &tau;-voice (MIT license).
+      &middot; <a href="leaderboard.html">Leaderboard</a>
+      &middot; <a href="docs/submission.md">Submission guide</a>
+      &middot; <a href="#" data-repo-link>Source</a>
+    </p>
+  </div>
+</footer>
+
+</body>
+</html>

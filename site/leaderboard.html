@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- RENAME POINT: benchmark name appears literally only in <title>;
+       everything else is filled from BENCH in site.js. -->
+  <title>℞-bench Leaderboard</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="site.js" defer></script>
+  <script src="leaderboard.js" defer></script>
+</head>
+<body>
+
+<header class="site-header">
+  <div class="container">
+    <a class="brand bench-name" href="index.html">Benchmark</a>
+    <nav class="site-nav">
+      <a href="leaderboard.html" aria-current="page">Leaderboard</a>
+      <a href="docs/whitepaper.pdf">Whitepaper</a>
+      <a href="#" data-repo-link>GitHub</a>
+      <a href="docs/submission.md">Submit</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div class="page-title">
+    <div class="container">
+      <h1>Leaderboard</h1>
+      <p>
+        pass^k reliability per agent, FHIR-verified. Higher k means a stricter
+        bar: the agent must succeed on all k of k i.i.d. trials of a task.
+        Filter by agent class to compare like with like.
+      </p>
+    </div>
+  </div>
+
+  <div class="container">
+    <div class="filter-tabs" role="group" aria-label="Filter by agent class">
+      <button type="button" data-class="all" aria-pressed="true">All</button>
+      <button type="button" data-class="A" aria-pressed="false">A &middot; Text</button>
+      <button type="button" data-class="B" aria-pressed="false">B &middot; Voice (audio-native)</button>
+      <button type="button" data-class="C" aria-pressed="false">C &middot; Voice (pipeline)</button>
+    </div>
+
+    <div class="table-wrap">
+      <table id="leaderboard-table">
+        <thead>
+          <tr>
+            <th class="num">Rank</th>
+            <th>Agent Class</th>
+            <th>Model</th>
+            <th>User Sim</th>
+            <th>Judge</th>
+            <th class="num">Trials</th>
+            <th class="num">Pass^1</th>
+            <th class="num">Pass^2</th>
+            <th class="num">Pass^3</th>
+            <th class="num">Pass^4</th>
+            <th>Date</th>
+          </tr>
+        </thead>
+        <tbody id="leaderboard-body">
+          <tr><td colspan="11" class="empty-state">Loading results&hellip;</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="table-footnote">
+      &dagger; Preliminary: smoke-split run with a reduced task set and trial
+      count; not comparable to full-split results. &mdash; means k exceeds the
+      number of trials for that run.
+    </p>
+
+    <div class="submit-note">
+      <strong>Submit a result:</strong> open a GitHub pull request adding a row
+      to <code>data/leaderboard.json</code> along with your run logs. See the
+      <a href="docs/submission.md">submission guide</a> for the required
+      artifacts and verification steps.
+    </div>
+
+    <noscript>
+      <p class="table-footnote">
+        This table is populated from <code>data/leaderboard.json</code> and
+        requires JavaScript.
+      </p>
+    </noscript>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="container">
+    <p class="footer-meta">
+      Built on Sierra&rsquo;s &tau;&sup2;-bench and &tau;-voice (MIT license).
+      &middot; <a href="index.html">About</a>
+      &middot; <a href="docs/submission.md">Submission guide</a>
+      &middot; <a href="#" data-repo-link>Source</a>
+    </p>
+  </div>
+</footer>
+
+</body>
+</html>

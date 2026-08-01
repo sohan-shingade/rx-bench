@@ -1,0 +1,37 @@
+{
+  "_readme": [
+    "Leaderboard data. Rows are rendered by leaderboard.js; keys starting with",
+    "an underscore are ignored by the site and exist only as documentation.",
+    "To add a result, append an object to `rows` following `_example_row_schema`",
+    "and open a GitHub PR (see docs/submission.md)."
+  ],
+  "_example_row_schema": {
+    "agent": "string — submitted agent/model identifier, e.g. my-voice-agent-v2",
+    "class": "string — agent class: A (Text, standard scaffold) | B (Voice, audio-native) | C (Voice, pipeline ASR->LLM->TTS)",
+    "model": "string — underlying model id(s)",
+    "user_sim": "string|null — user-simulator model, null if not applicable/unknown",
+    "judge": "string — outcome judge, e.g. FHIR diff (deterministic)",
+    "split": "string — smoke | full",
+    "trials": "integer — number of i.i.d. trials per task (n)",
+    "pass_hat": "object — pass^k estimates keyed by k as strings; omit keys where k > trials",
+    "date": "string — YYYY-MM-DD of the run",
+    "preliminary": "boolean — true for smoke-split or otherwise non-final numbers",
+    "notes": "string — free text shown nowhere yet, reserved"
+  },
+  "updated": "2026-08-01",
+  "rows": [
+    {
+      "agent": "claude-gpt-5-6-luna",
+      "class": "A",
+      "model": "claude-gpt-5-6-luna",
+      "user_sim": "claude-gpt-5-6-luna",
+      "judge": "env assertions (deterministic) + NL judge: claude-gpt-5-6-luna",
+      "split": "smoke",
+      "trials": 3,
+      "pass_hat": { "1": 0.367, "2": 0.2, "3": 0.1 },
+      "date": "2026-08-01",
+      "preliminary": true,
+      "notes": "First smoke-split run; full-split numbers pending."
+    }
+  ]
+}
