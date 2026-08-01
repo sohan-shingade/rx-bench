@@ -34,6 +34,19 @@
       "notes": "Full base split (111 cases), pilot at n=1."
     },
     {
+      "agent": "gemini-3.1-flash-live (audio-native)",
+      "class": "B",
+      "model": "gemini-3.1-flash-live-preview",
+      "user_sim": "claude-gpt-5-6-luna (turn-taker + responses; TTS: Deepgram Aura-2)",
+      "judge": "env assertions (deterministic) + NL judge: claude-gpt-5-6-luna",
+      "split": "smoke",
+      "trials": 1,
+      "pass_hat": { "1": 0.5 },
+      "date": "2026-08-01",
+      "preliminary": true,
+      "notes": "Full-duplex audio smoke, 2 cases (clean condition). Non-upstream turn-taker/judge/TTS — see repo disclosures. Interaction metrics: L_R 3.07s, R_R 100%."
+    },
+    {
       "agent": "claude-haiku-4-5",
       "class": "A",
       "model": "claude-haiku-4-5",
