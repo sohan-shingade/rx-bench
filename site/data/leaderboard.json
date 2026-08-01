@@ -26,12 +26,12 @@
       "model": "claude-gpt-5-6-luna",
       "user_sim": "claude-gpt-5-6-luna",
       "judge": "env assertions (deterministic) + NL judge: claude-gpt-5-6-luna",
-      "split": "smoke",
-      "trials": 3,
-      "pass_hat": { "1": 0.367, "2": 0.2, "3": 0.1 },
+      "split": "full",
+      "trials": 2,
+      "pass_hat": { "1": 0.564, "2": 0.491 },
       "date": "2026-08-01",
       "preliminary": true,
-      "notes": "First smoke-split run; full-split numbers pending."
+      "notes": "Full base split (110/111 cases scored), pilot at n=2 trials; resumable to n=4."
     }
   ]
 }
