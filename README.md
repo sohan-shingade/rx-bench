@@ -94,6 +94,24 @@ Suite maintenance commands: `rxbench merge` (rebuild `tasks.json` from
 cluster report), `rxbench repair` (recover simulations lost to infrastructure
 errors). See [docs/evaluation.md](docs/evaluation.md).
 
+## Agent classes
+
+The same 111 cases, tools, policy, and scorers evaluate three classes of agent
+— what differs is only how the caller's speech reaches the model:
+
+| Class | Under test | How audio enters | Run |
+|---|---|---|---|
+| **A — text / standard scaffold** | `llm_agent` on clean text | none | `uv run rxbench run --domain medical_reception --task-split-name smoke --agent-llm <model> --user-llm <model>` |
+| **B — voice / audio-native** | a speech-to-speech model (OpenAI Realtime, Gemini Live, xAI) | model consumes audio directly (τ-voice full-duplex) | `./src/rx_bench/voice_native/run_voice.sh clean --smoke` |
+| **C — voice / pipeline** | ASR → any text LLM with tools → TTS | Deepgram hears a degraded TTS rendering of each caller turn | `uv run python -m rx_bench.voice_pipeline.run_pipeline --cases S1-lasa-001 --trials 1 --profile realistic` |
+
+Class B needs the `[voice]` extra plus OpenAI/ElevenLabs/Deepgram keys (see
+[src/rx_bench/voice_native/README.md](src/rx_bench/voice_native/README.md));
+class C needs macOS `say` and a `DEEPGRAM_API_KEY` (see
+[src/rx_bench/voice_pipeline/README.md](src/rx_bench/voice_pipeline/README.md)).
+All three emit a standard tau2 `results.json` that `rxbench score` reads
+unchanged, so scores are directly comparable across classes.
+
 ## Metrics
 
 **Reward.** Each task's reward is computed by the τ²-bench evaluator from its
@@ -140,6 +158,9 @@ src/rx_bench/domain/    # tau2 domain: DB model, 19 tools, environment, Medplum 
 src/rx_bench/harness/   # merge, vacuity, scorers, scorecard, mutate, diversity, repair
 src/rx_bench/live/      # talk to the agent yourself (terminal, browser, voice)
 src/rx_bench/audio/     # Tier-A audio corpus tooling (render/degrade/manifest/ASR eval)
+src/rx_bench/voice_pipeline/  # agent class C: ASR -> text LLM -> (TTS) runner
+src/rx_bench/voice_native/    # agent class B: tau-voice full-duplex wrapper
+
 data/v1/                # db.json, policy.md, tasks.json, cases/, mutants/
 docs/                   # evaluation methodology, submission guide, whitepaper
 results/                # reference scorecards

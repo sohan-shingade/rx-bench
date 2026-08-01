@@ -22,6 +22,9 @@ voice = [
     "numpy>=1.26",
     "sounddevice>=0.4",
     "deepgram-sdk>=3.0",
+    # Audio-native (class B) runs need tau2's own voice stack
+    # (elevenlabs, websockets, google-genai, livekit-agents, ...).
+    "tau2[voice] @ git+https://github.com/sierra-research/tau2-bench@363133a",
 ]
 dev = [
     "pytest>=8.0",
