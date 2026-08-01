@@ -11,7 +11,7 @@ const BENCH = {
   year: "2026",
   tagline:
     "A Benchmark for Voice-Agent–Patient Interaction in Medical Front-Office Workflows",
-  repoUrl: "https://github.com/PLACEHOLDER-ORG/rx-bench" // TODO: real repo URL
+  repoUrl: "https://github.com/sohan-shingade/rx-bench" // TODO: real repo URL
 };
 
 document.addEventListener("DOMContentLoaded", () => {
