@@ -34,6 +34,19 @@
       "notes": "Full base split (111 cases), pilot at n=1."
     },
     {
+      "agent": "claude-gpt-5-6-luna over telephony (pipeline)",
+      "class": "C",
+      "model": "Deepgram nova-3-medical ASR → claude-gpt-5-6-luna",
+      "user_sim": "claude-gpt-5-6-luna (TTS: macOS say, noisy_phone profile)",
+      "judge": "env assertions (deterministic) + NL judge: claude-gpt-5-6-luna",
+      "split": "S1 LASA (32)",
+      "trials": 1,
+      "pass_hat": { "1": 0.375 },
+      "date": "2026-08-01",
+      "preliminary": true,
+      "notes": "Voice tax: same tasks/agent score 0.641 in text — a 41% relative drop under degraded telephony (mean turn WER 0.51). Zero wrong-drug charting; failures are lost calls."
+    },
+    {
       "agent": "gemini-3.1-flash-live (audio-native)",
       "class": "B",
       "model": "gemini-3.1-flash-live-preview",
