@@ -1,0 +1,194 @@
+# ℞-bench: A Benchmark for Voice-Agent–Patient Interaction in Medical Front-Office Workflows
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![python](https://img.shields.io/badge/Python-3.12%2B-blue.svg?style=flat&logo=python&logoColor=white)](https://www.python.org)
+[![Whitepaper](https://img.shields.io/badge/📄_Whitepaper-draft_v0.1-B31B1B.svg)](docs/whitepaper.md)
+[![Leaderboard](https://img.shields.io/badge/🏆_Leaderboard-coming_soon-lightgrey.svg)](docs/submission.md)
+
+> The name "℞-bench" (ASCII: `rx-bench`) is a provisional working name.
+
+Voice agents are answering medical front-office phone lines today: scheduling
+appointments, routing refills, recording reported medications, triaging
+emergencies. The distinctive risk of the voice modality is that speech is
+uncertain and medical vocabulary is adversarially confusable — and an agent
+that mishears, guesses, and commits the guess to the chart has converted a
+low-confidence acoustic token into a trusted clinical fact. We call this
+failure mode **uncertainty laundering**, and ℞-bench exists to measure it.
+
+The design principle throughout: **score the chart, not the conversation.** A
+transcript can read as fluent and careful while the committed record is wrong.
+Every task is graded against the final environment state — which patient's
+chart was touched, what medication name and dose were written, whether an
+escalation was filed — with natural-language assertions on the dialogue as a
+secondary, conjunctive check.
+
+℞-bench is implemented as a `medical_reception` domain for
+[τ²-bench](https://github.com/sierra-research/tau2-bench) and inherits its
+orchestrator, task schema, user simulator, and evaluators unmodified (the
+τ³ voice/full-duplex stack included). It ships **111 tasks across 8 suites**, a
+synthetic FHIR-mapped practice database, a 19-tool API, a nine-section
+front-desk policy, six deterministic safety scorers, and the meta-evaluation
+machinery (vacuity checks, policy mutation testing, diversity reporting) that
+keeps the suite honest.
+
+## Task suites
+
+| Suite | Prefix | Tasks | What it measures |
+|---|---|---:|---|
+| LASA drug fidelity | `S1` | 32 | look-alike/sound-alike confusions, corrupted vs clean twins, noisy-transcript variants |
+| Functional | `F` | 25 | happy paths and ordinary variations (booking, refills, messages) |
+| Planted ASR error | `S2` | 14 | readback under pressure, sycophantic capitulation to a wrong "correction" |
+| Emergency escalation | `S4` | 12 | red flags **and matched non-emergency controls** |
+| Drug seeking | `S7` | 12 | controlled-substance routing, manipulation resistance |
+| Adversarial | `S3` | 8 | social engineering, PHI extraction, identity attacks |
+| Repetition / effort | `E3` | 5 | caller friction, redundant questions |
+| AI disclosure | `S6` | 3 | disclosure ceremony (e.g. CA AB 3030-style rules) |
+| **Total** | | **111** | |
+
+Splits: `base` (all 111, default), `safety` (81), `functional` (30), `smoke`
+(10), plus one split per suite (`lasa`, `planted_error`, `attacks`,
+`emergency`, `disclosure`, `drug_seeking`, `repetition`). See
+`data/v1/split_tasks.json`.
+
+## Quick start
+
+### 1. Install
+
+```bash
+git clone https://github.com/PLACEHOLDER/rx-bench
+cd rx-bench
+uv sync                 # installs rx_bench + tau2 (pinned) into .venv
+# uv sync --extra voice # optional: local voice loop + audio tooling
+```
+
+### 2. Set up API keys
+
+```bash
+cp .env.example .env
+# Fill in the provider keys your chosen models need (LiteLLM ids).
+# Strongly recommended: set TAU2_LLM_NL_ASSERTIONS to a model on the SAME
+# provider as your run, or grading fails after the simulation tokens are spent.
+```
+
+### 3. Run
+
+```bash
+# fast sanity check: 10 cases
+uv run rxbench run --domain medical_reception --task-split-name smoke \
+  --agent-llm gpt-4.1 --user-llm gpt-4.1 --max-steps 40 --max-concurrency 2
+
+# score the run (per-suite pass rates + all six safety scorers)
+uv run rxbench score data/simulations/<run_name>/results.json
+
+# or the one-command wrapper (merge + vacuity-check + run + score):
+./scripts/run.sh smoke
+```
+
+`rxbench` is a thin wrapper over the stock `tau2` CLI: it registers the
+domain, applies the env-var config knobs, and forwards everything else — so
+`rxbench run`, `rxbench view`, etc. behave exactly as documented for τ²-bench.
+
+Suite maintenance commands: `rxbench merge` (rebuild `tasks.json` from
+`data/v1/cases/`), `rxbench vacuity` (reject tasks a silent agent would pass),
+`rxbench mutate` (policy mutation testing), `rxbench diversity` (copy-paste
+cluster report), `rxbench repair` (recover simulations lost to infrastructure
+errors). See [docs/evaluation.md](docs/evaluation.md).
+
+## Metrics
+
+**Reward.** Each task's reward is computed by the τ²-bench evaluator from its
+`reward_basis` — environment assertions over the final database state
+(`ENV_ASSERTION`, deterministic, no judge) optionally conjoined with
+LLM-judged natural-language assertions over the transcript (`NL_ASSERTION`).
+A task passes when reward = 1. Tasks in this suite deliberately use only these
+two bases; per-task detail is in each case file's `evaluation_criteria`.
+
+**pass^k.** Reliability over k trials of the same task, as in τ-bench:
+
+$$\text{pass}^k = \mathbb{E}_{\text{task}}\left[\binom{c}{k} \Big/ \binom{n}{k}\right]$$
+
+where n is the number of trials run and c the number passed. pass^1 is the
+average pass rate; pass^k for k>1 rewards *consistent* success and is the
+number that matters for anything answering a phone in a clinic.
+
+**Safety scorers.** Alongside reward, `rxbench score` reports six
+deterministic scorers over the trajectory: provenance (chart-fact canary),
+readback discipline (policy §3 state machine vs the agent's own claimed
+certainty), drug-entity substitution (LASA vs generic ASR error), ease-of-use
+(friction/repetition), turn-of-flip (pressure-induced concession ladder), and
+paired positive/control outcomes. Each reports its own documented
+limitations. See [docs/evaluation.md](docs/evaluation.md).
+
+**Infrastructure honesty.** Simulations that died on provider/infrastructure
+errors are excluded from every rate (never counted as failures), and the
+scorecard says how many there were. `rxbench repair` re-runs exactly the lost
+cases and splices them back.
+
+## What's new / versioning
+
+- **data/v1** — current data version: 111 tasks / 8 suites, including the new
+  S7 drug-seeking suite. **Results are not comparable across data versions**;
+  every scorecard records the policy file's SHA-256 and the task-set hash so a
+  number is always attributable to the exact data that produced it.
+- Run outputs land in `data/simulations/` (gitignored). Reference scorecards
+  for the baseline runs live in `results/`.
+
+## Repository layout
+
+```
+src/rx_bench/domain/    # tau2 domain: DB model, 19 tools, environment, Medplum mirror
+src/rx_bench/harness/   # merge, vacuity, scorers, scorecard, mutate, diversity, repair
+src/rx_bench/live/      # talk to the agent yourself (terminal, browser, voice)
+src/rx_bench/audio/     # Tier-A audio corpus tooling (render/degrade/manifest/ASR eval)
+data/v1/                # db.json, policy.md, tasks.json, cases/, mutants/
+docs/                   # evaluation methodology, submission guide, whitepaper
+results/                # reference scorecards
+tests/                  # offline unit tests (no API keys needed)
+```
+
+## Citation
+
+If you use ℞-bench, please cite it, and please also cite the τ-bench line of
+work it builds on:
+
+```bibtex
+@misc{rxbench2026,
+  title={Rx-bench: A Benchmark for Voice-Agent--Patient Interaction in
+         Medical Front-Office Workflows},
+  author={{The Rx-bench authors}},
+  year={2026},
+  note={Working draft. Repository: https://github.com/PLACEHOLDER/rx-bench}
+}
+
+@misc{yao2024tau,
+  title={$\tau$-bench: A Benchmark for Tool-Agent-User Interaction in Real-World Domains},
+  author={Shunyu Yao and Noah Shinn and Pedram Razavi and Karthik Narasimhan},
+  year={2024}, eprint={2406.12045}, archivePrefix={arXiv}, primaryClass={cs.AI},
+  url={https://arxiv.org/abs/2406.12045},
+}
+
+@misc{barres2025tau2,
+  title={$\tau^2$-Bench: Evaluating Conversational Agents in a Dual-Control Environment},
+  author={Victor Barres and Honghua Dong and Soham Ray and Xujie Si and Karthik Narasimhan},
+  year={2025}, eprint={2506.07982}, archivePrefix={arXiv}, primaryClass={cs.AI},
+  url={https://arxiv.org/abs/2506.07982},
+}
+
+@misc{ray2026tauvoice,
+  title={$\tau$-Voice: Benchmarking Full-Duplex Voice Agents on Real-World Domains},
+  author={Soham Ray and Keshav Dhandhania and Victor Barres and Karthik Narasimhan},
+  year={2026}, eprint={2603.13686}, archivePrefix={arXiv}, primaryClass={cs.SD},
+  url={https://arxiv.org/abs/2603.13686},
+}
+```
+
+## License and acknowledgments
+
+MIT — see [LICENSE](LICENSE).
+
+℞-bench is built on Sierra Research's
+[τ²-bench](https://github.com/sierra-research/tau2-bench) (MIT), whose
+orchestrator, simulator, and evaluation stack it reuses wholesale. LASA drug
+pairs are informed by the FDA's Tall Man lettering list (public domain). See
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). All patients, providers, and
+clinical data in this benchmark are synthetic.

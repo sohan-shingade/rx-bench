@@ -1,0 +1,35 @@
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Run outputs (tau2 writes simulations under TAU2_DATA_DIR=data/)
+data/simulations/
+data/notes/
+scorecard.json
+vacuity_report.json
+mutation_report.json
+
+# Medplum best-effort spool written next to the domain data
+data/**/medplum_spool.jsonl
+
+# Generated audio corpus (WAVs ship as a release asset, not in git)
+src/rx_bench/audio/corpus/base/
+src/rx_bench/audio/corpus/renders/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

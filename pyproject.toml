@@ -1,0 +1,47 @@
+[project]
+name = "rx-bench"
+version = "0.1.0"
+description = "A benchmark for voice-agent-patient interaction in medical front-office workflows, built on tau2-bench"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.12,<3.14"
+authors = [{ name = "The rx-bench authors" }]
+keywords = ["benchmark", "llm", "voice-agents", "healthcare", "patient-safety", "tau-bench"]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "tau2 @ git+https://github.com/sierra-research/tau2-bench@363133a",
+]
+
+[project.optional-dependencies]
+voice = [
+    # Local voice loop (rx_bench.live --voice) and audio-corpus scoring.
+    "numpy>=1.26",
+    "sounddevice>=0.4",
+    "deepgram-sdk>=3.0",
+]
+dev = [
+    "pytest>=8.0",
+]
+
+[project.scripts]
+rxbench = "rx_bench.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/rx_bench"]
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.uv]
+# tau2 pins a large dependency tree; resolve it as-is.
