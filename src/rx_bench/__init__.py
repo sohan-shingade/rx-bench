@@ -130,6 +130,10 @@ def register() -> None:
     """
     _patch_tau2_config()
 
+    from rx_bench.voice_native import tau2_patches as _voice_patches
+
+    _voice_patches.apply()
+
     from tau2.registry import registry
 
     from rx_bench.domain.environment import (

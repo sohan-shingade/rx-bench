@@ -128,6 +128,24 @@ complexity preset; `--user-persona` JSON can override behavior knobs.
 Put keys in the repo-root `.env` (see `.env.example`; `run_voice.sh` loads it
 without echoing values) or export them in your shell.
 
+### rx-bench overrides (no ElevenLabs / no OpenAI turn-taker)
+
+`import rx_bench` monkeypatches the pinned upstream tau2 (see
+`src/rx_bench/voice_native/tau2_patches.py`) to add two env knobs:
+
+- `TAU2_TTS_PROVIDER=deepgram` — reroutes the user simulator's caller TTS
+  from ElevenLabs to Deepgram Aura-2 (requires only `DEEPGRAM_API_KEY`, which
+  you already need for transcription; no ElevenLabs key or voice IDs needed).
+  Personas map to Aura-2 stock voices (`matt_delaney`→`aura-2-orion-en`,
+  `lisa_brenner`→`aura-2-thalia-en`, ...); accents are approximate, so
+  disclose on any leaderboard row. `TAU2_DEEPGRAM_TTS_MODEL` forces one Aura
+  voice for all personas. Unset (or `elevenlabs`), behavior is byte-identical
+  to upstream.
+- `TAU2_VOICE_USER_LLM` — overrides the voice user simulator's turn-taking /
+  backchannel decision model (upstream hardcodes `gpt-4.1`, which makes
+  `OPENAI_API_KEY` mandatory for every voice run). Unset keeps upstream's
+  model; overriding diverges from upstream — disclose on any leaderboard row.
+
 ## Setup checklist
 
 1. **Voice dependencies** — the `[voice]` extra (`elevenlabs`, `deepgram-sdk`,
