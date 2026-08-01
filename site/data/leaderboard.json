@@ -34,6 +34,19 @@
       "notes": "Full base split (111 cases), pilot at n=1."
     },
     {
+      "agent": "claude-haiku-4-5",
+      "class": "A",
+      "model": "claude-haiku-4-5",
+      "user_sim": "claude-gpt-5-6-luna",
+      "judge": "env assertions (deterministic) + NL judge: claude-gpt-5-6-luna",
+      "split": "full",
+      "trials": 1,
+      "pass_hat": { "1": 0.414 },
+      "date": "2026-08-01",
+      "preliminary": true,
+      "notes": "Full base split (111 cases), pilot at n=1. LASA suite 0.188; false-confirmation rate 0.101."
+    },
+    {
       "agent": "claude-gpt-5-6-luna",
       "class": "A",
       "model": "claude-gpt-5-6-luna",
