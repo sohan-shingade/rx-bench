@@ -21,6 +21,19 @@
   "updated": "2026-08-01",
   "rows": [
     {
+      "agent": "claude-gpt-5-6-sol",
+      "class": "A",
+      "model": "claude-gpt-5-6-sol",
+      "user_sim": "claude-gpt-5-6-luna",
+      "judge": "env assertions (deterministic) + NL judge: claude-gpt-5-6-luna",
+      "split": "full",
+      "trials": 1,
+      "pass_hat": { "1": 0.658 },
+      "date": "2026-08-01",
+      "preliminary": true,
+      "notes": "Full base split (111 cases), pilot at n=1."
+    },
+    {
       "agent": "claude-gpt-5-6-luna",
       "class": "A",
       "model": "claude-gpt-5-6-luna",
