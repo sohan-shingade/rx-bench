@@ -1,0 +1,774 @@
+<!-- Live call console for the medical_reception agent.
+     Served by evals/live/web.py. No build step, no external requests. -->
+<meta charset="utf-8">
+<title>Live call — medical_reception</title>
+<style>
+  :root {
+    --bg: #0e1116; --panel: #161b22; --edge: #262d38; --ink: #d6dde6;
+    --dim: #7d8998; --agent: #5fb0ff; --caller: #9ae6a0; --tool: #d9a441;
+    --warn: #ff9d5c; --err: #ff6b6b; --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; height: 100vh; display: flex; flex-direction: column;
+    background: var(--bg); color: var(--ink);
+    font: 14px/1.55 var(--mono);
+  }
+  header {
+    display: flex; gap: 14px; align-items: center; flex-wrap: wrap;
+    padding: 10px 16px; border-bottom: 1px solid var(--edge); background: var(--panel);
+  }
+  h1 { font-size: 14px; margin: 0; font-weight: 600; letter-spacing: .02em; }
+  .meta { color: var(--dim); font-size: 12px; display: flex; gap: 14px; flex-wrap: wrap; }
+  .meta b { color: var(--ink); font-weight: 500; }
+  .pill {
+    padding: 2px 9px; border-radius: 99px; font-size: 11px; letter-spacing: .04em;
+    text-transform: uppercase; border: 1px solid var(--edge); color: var(--dim);
+  }
+  .pill.live { color: #0e1116; background: var(--caller); border-color: transparent; }
+  .pill.paused { color: #0e1116; background: var(--tool); border-color: transparent; }
+  .pill.failed { color: #0e1116; background: var(--err); border-color: transparent; }
+
+  #setup { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-left: auto; }
+  select, input, button {
+    font: inherit; font-size: 12px; color: var(--ink); background: #0b0e13;
+    border: 1px solid var(--edge); border-radius: 6px; padding: 5px 9px;
+  }
+  select { max-width: 380px; }
+  button { cursor: pointer; }
+  button:hover:not(:disabled) { border-color: #3d4859; }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  button.primary { background: var(--agent); color: #06101c; border-color: transparent; font-weight: 600; }
+  button.danger { border-color: #5a2b2b; color: #ffb3b3; }
+  button.on { background: var(--caller); color: #06101c; border-color: transparent; }
+
+  main { flex: 1; display: grid; grid-template-columns: 1fr 400px; min-height: 0; }
+  section { min-height: 0; display: flex; flex-direction: column; }
+  section + section { border-left: 1px solid var(--edge); }
+  .head {
+    padding: 7px 14px; font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--dim); border-bottom: 1px solid var(--edge); display: flex; gap: 10px; align-items: center;
+  }
+  .head label { display: flex; gap: 5px; align-items: center; text-transform: none; letter-spacing: 0; }
+  .scroll { flex: 1; overflow-y: auto; padding: 14px; }
+
+  .turn { margin-bottom: 14px; }
+  .who { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); margin-bottom: 3px; }
+  .turn.agent .who { color: var(--agent); }
+  .turn.caller .who { color: var(--caller); }
+  .body { white-space: pre-wrap; word-break: break-word; }
+  .turn.agent .body { border-left: 2px solid var(--agent); padding-left: 10px; }
+  .turn.caller .body { border-left: 2px solid var(--caller); padding-left: 10px; }
+
+  .tool { margin: 8px 0 8px 10px; border-left: 2px solid var(--tool); padding-left: 10px; }
+  .tool .name { color: var(--tool); }
+  .tool .args, .tool .res {
+    color: var(--dim); font-size: 12px; white-space: pre-wrap; word-break: break-all;
+  }
+  .tool .res.error { color: var(--err); }
+  /* The evaluator replays every mutating call into a fresh gold environment
+     after the call ends. Those are real calls, but nobody made them during the
+     conversation -- showing them inline would read as the agent acting twice. */
+  .tool.replay { border-left-style: dashed; opacity: .62; }
+  .tool.replay .name { color: var(--dim); }
+  .held {
+    margin: 8px 0; border-left: 2px dashed var(--tool); padding-left: 10px; color: var(--tool);
+  }
+  .held .body { white-space: pre-wrap; word-break: break-word; color: var(--ink); opacity: .8; }
+  .note { color: var(--dim); font-size: 12px; margin: 6px 0; }
+  .warn { color: var(--warn); font-size: 12px; margin: 6px 0; }
+  .err { color: var(--err); margin: 8px 0; white-space: pre-wrap; }
+
+  .summary { border: 1px solid var(--edge); border-radius: 8px; padding: 12px; margin-top: 16px; background: var(--panel); }
+  .summary h2 { font-size: 12px; margin: 0 0 8px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); }
+  .summary table { border-collapse: collapse; font-size: 12px; }
+  .summary td { padding: 1px 14px 1px 0; }
+  .summary td:first-child { color: var(--dim); }
+  .vacuous { color: var(--warn); font-size: 12px; margin-top: 6px; }
+
+  #log { font-size: 11.5px; }
+  .line { display: flex; gap: 8px; padding: 1px 0; }
+  .line .lvl { width: 62px; flex: none; color: var(--dim); }
+  .line .msg { word-break: break-word; color: var(--dim); }
+  .line.WARNING .lvl, .line.WARNING .msg { color: var(--warn); }
+  .line.ERROR .lvl, .line.ERROR .msg, .line.CRITICAL .lvl { color: var(--err); }
+
+  footer { border-top: 1px solid var(--edge); background: var(--panel); padding: 10px 14px; }
+  .row { display: flex; gap: 8px; align-items: center; }
+  #text { flex: 1; font-size: 14px; padding: 9px 11px; }
+  .hint { color: var(--dim); font-size: 11.5px; margin-top: 7px; display: flex; gap: 16px; flex-wrap: wrap; }
+  .hint label { display: flex; gap: 5px; align-items: center; }
+  .interim { color: var(--tool); }
+</style>
+
+<header>
+  <h1>live call · medical_reception</h1>
+  <span class="pill" id="state">idle</span>
+  <div class="meta">
+    <span>task <b id="m-task">—</b></span>
+    <span>model <b id="m-model">—</b></span>
+    <span>policy <b id="m-policy">—</b></span>
+    <span>asr <b id="m-asr">—</b></span>
+  </div>
+  <div id="setup">
+    <select id="task" title="which case to run"></select>
+    <button id="start" class="primary">Start call</button>
+    <button id="pause" disabled>Pause</button>
+    <button id="hangup" class="danger" disabled>Hang up</button>
+  </div>
+</header>
+
+<main>
+  <section>
+    <div class="head">
+      conversation
+      <label><input type="checkbox" id="showTools" checked> tool calls</label>
+      <label><input type="checkbox" id="showResults" checked> tool results</label>
+    </div>
+    <div class="scroll" id="convo"></div>
+  </section>
+  <section>
+    <div class="head">
+      framework log
+      <label>level
+        <select id="loglevel">
+          <option>DEBUG</option><option selected>INFO</option>
+          <option>WARNING</option><option>ERROR</option>
+        </select>
+      </label>
+    </div>
+    <div class="scroll" id="log"></div>
+  </section>
+</main>
+
+<footer>
+  <div class="row">
+    <button id="mic" title="hold a conversation out loud">🎙 Speak</button>
+    <button id="recal" title="re-measure the room's noise floor (only needed if the room changed)">↺ room</button>
+    <input id="text" placeholder="Start a call, then type or speak as the caller…" disabled autocomplete="off">
+    <button id="send" disabled>Send</button>
+  </div>
+  <div class="hint">
+    <label><input type="checkbox" id="tts" checked> speak agent replies</label>
+    <label><input type="checkbox" id="autosend" checked> send when I stop talking</label>
+    <span id="micstate"></span>
+    <span>Pause freezes the call at the caller's turn — an agent step, once begun, always finishes.</span>
+  </div>
+</footer>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const convo = $('convo'), log = $('log');
+let paused = false, running = false, lastSeq = -1;
+// True while the server is flushing past events. EventSource reconnects on its
+// own and replays from the top, so this is re-armed on every open, not once.
+let replaying = true;
+
+const LEVELS = {DEBUG: 10, INFO: 20, WARNING: 30, ERROR: 40, CRITICAL: 50};
+
+function atBottom(el) { return el.scrollHeight - el.scrollTop - el.clientHeight < 60; }
+function add(el, node) {
+  const stick = atBottom(el);
+  el.appendChild(node);
+  if (stick) el.scrollTop = el.scrollHeight;
+}
+function el(tag, cls, text) {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text !== undefined) n.textContent = text;
+  return n;
+}
+
+function setState(name) {
+  const pill = $('state');
+  pill.textContent = name;
+  pill.className = 'pill ' + (name === 'live' ? 'live' : name === 'paused' ? 'paused'
+    : name === 'failed' ? 'failed' : '');
+}
+
+function turn(kind, who, text) {
+  const wrap = el('div', 'turn ' + kind);
+  wrap.appendChild(el('div', 'who', who));
+  wrap.appendChild(el('div', 'body', text));
+  add(convo, wrap);
+}
+
+function toolCall(ev) {
+  if (!$('showTools').checked) return;
+  const wrap = el('div', 'tool' + (ev.phase === 'evaluation' ? ' replay' : ''));
+  wrap.dataset.role = 'call';
+  const label = ev.phase === 'evaluation' ? '⟲ replay · ' : '⚙ ';
+  wrap.appendChild(el('div', 'name', label + ev.name));
+  const args = Object.entries(ev.arguments || {})
+    .map(([k, v]) => k + '=' + (typeof v === 'object' ? JSON.stringify(v) : String(v)))
+    .join('\n');
+  if (args) wrap.appendChild(el('div', 'args', args));
+  add(convo, wrap);
+}
+
+function toolResult(ev) {
+  if (!$('showResults').checked) return;
+  const wrap = el('div', 'tool' + (ev.phase === 'evaluation' ? ' replay' : ''));
+  wrap.dataset.role = 'result';
+  wrap.appendChild(el('div', 'res' + (ev.error ? ' error' : ''), '↩ ' + (ev.content || '(empty)')));
+  add(convo, wrap);
+}
+
+// A held turn has been taken off the wire but not handed to the agent. It is
+// shown where it will land, so a pause never looks like a dropped message.
+let heldNode = null;
+function showHeld(text) {
+  clearHeld();
+  heldNode = el('div', 'held');
+  heldNode.appendChild(el('div', 'who', 'you · held, not yet delivered'));
+  heldNode.appendChild(el('div', 'body', text));
+  add(convo, heldNode);
+}
+function clearHeld() {
+  if (heldNode) { heldNode.remove(); heldNode = null; }
+}
+
+function summary(ev) {
+  const box = el('div', 'summary');
+  box.appendChild(el('h2', null, 'call summary'));
+  const table = el('table');
+  const row = (k, v) => {
+    const tr = el('tr');
+    tr.appendChild(el('td', null, k));
+    tr.appendChild(el('td', null, v));
+    table.appendChild(tr);
+  };
+  row('messages', ev.messages);
+  if (ev.reward !== undefined) row('reward', ev.reward);
+  for (const [k, v] of Object.entries(ev.breakdown || {})) row(k.toLowerCase(), v);
+  row('chart writes', ev.writes ?? 0);
+  for (const [k, v] of Object.entries(ev.claimed || {})) row('claimed ' + k, v);
+  for (const [k, v] of Object.entries(ev.audited || {})) row('audited ' + k, v);
+  row('saved', ev.save_path);
+  box.appendChild(table);
+  if (!ev.graded && ev.reward !== undefined) {
+    box.appendChild(el('div', 'vacuous',
+      'This task has no assertions, so the reward is vacuous — it cannot fail one. ' +
+      'Pick a graded case for a real number.'));
+  }
+  if (ev.writes) {
+    box.appendChild(el('div', 'vacuous',
+      '"claimed" is what the agent said about its own certainty; "audited" is what a ' +
+      'transcript state machine found. Disagreement is the finding.'));
+  }
+  add(convo, box);
+}
+
+function logLine(ev) {
+  const line = el('div', 'line ' + ev.level);
+  line.dataset.level = LEVELS[ev.level] || 20;
+  line.appendChild(el('span', 'lvl', ev.level.toLowerCase()));
+  line.appendChild(el('span', 'msg', ev.text));
+  add(log, line);
+  applyLogFilter();
+}
+
+function applyLogFilter() {
+  const min = LEVELS[$('loglevel').value];
+  for (const line of log.children) line.style.display = (+line.dataset.level >= min) ? '' : 'none';
+}
+$('loglevel').onchange = applyLogFilter;
+
+for (const box of ['showTools', 'showResults']) {
+  $(box).onchange = () => {
+    const role = box === 'showTools' ? 'call' : 'result';
+    for (const n of convo.querySelectorAll('.tool[data-role="' + role + '"]'))
+      n.style.display = $(box).checked ? '' : 'none';
+  };
+}
+
+// ---------------------------------------------------------------- events
+function handle(ev) {
+  // Replayed history is rendered but never spoken; see the `synced` marker.
+  if (ev.kind === 'synced') { replaying = false; return; }
+  if (ev.seq <= lastSeq) return;
+  lastSeq = ev.seq;
+  switch (ev.kind) {
+    case 'started':
+      running = true; paused = false; setState('live'); clearHeld();
+      $('m-task').textContent = ev.task + (ev.graded ? '' : ' (free-form)');
+      $('m-model').textContent = ev.model;
+      $('m-policy').textContent = ev.policy;
+      $('text').disabled = false; $('send').disabled = false;
+      $('pause').disabled = false; $('hangup').disabled = false; $('start').disabled = true;
+      if (ev.purpose) add(convo, el('div', 'note', ev.purpose));
+      add(convo, el('div', 'note', 'saving to ' + ev.save_path));
+      $('text').focus();
+      break;
+    case 'agent': turn('agent', 'agent', ev.text); speak(ev.text); break;
+    case 'caller': clearHeld(); turn('caller', 'you', ev.text); break;
+    // What the transcriber returned, before you had a chance to edit it. A drug
+    // name the agent got wrong is either the agent's fault or the ASR's, and
+    // this is the only line that separates the two.
+    case 'heard':
+      add(convo, el('div', 'note', `heard [${ev.backend}]: ${ev.text || '(nothing)'}`));
+      break;
+    case 'held': showHeld(ev.text); break;
+    case 'tool_call': toolCall(ev); break;
+    case 'tool_result': toolResult(ev); break;
+    // human_user.py unwraps the agent's JSON envelope before the channel sees
+    // it and reports the fact as a note, so the note stream carries real
+    // warnings too. Colour follows the marker rather than the event kind.
+    case 'note': add(convo, el('div', ev.text.startsWith('⚠') ? 'warn' : 'note', ev.text)); break;
+    case 'warning': add(convo, el('div', 'warn', '⚠ ' + ev.text)); break;
+    case 'error': add(convo, el('div', 'err', ev.text + (ev.detail ? '\n' + ev.detail : ''))); break;
+    case 'log': logLine(ev); break;
+    case 'state': paused = !!ev.paused; setState(paused ? 'paused' : 'live'); syncPause(); break;
+    case 'summary': summary(ev); break;
+    case 'ended':
+      running = false; setState(ev.state === 'failed' ? 'failed' : 'ended');
+      clearHeld();
+      $('text').disabled = true; $('send').disabled = true;
+      $('pause').disabled = true; $('hangup').disabled = true; $('start').disabled = false;
+      stopMic();
+      break;
+  }
+}
+
+const stream = new EventSource('/events');
+stream.onopen = () => { replaying = true; };
+stream.onmessage = (e) => handle(JSON.parse(e.data));
+
+// ---------------------------------------------------------------- controls
+async function post(path, body) {
+  const r = await fetch(path, {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body || {})
+  });
+  return r.json();
+}
+
+fetch('/tasks').then(r => r.json()).then(d => {
+  for (const t of d.tasks) {
+    const o = document.createElement('option');
+    o.value = t.id; o.textContent = t.label;
+    $('task').appendChild(o);
+  }
+});
+
+$('start').onclick = async () => {
+  stopSpeaking();  // a previous call's queued sentences outlive its transcript
+  convo.innerHTML = ''; log.innerHTML = ''; lastSeq = -1;
+  const res = await post('/start', {task: $('task').value});
+  if (!res.ok) add(convo, el('div', 'err', res.error || 'could not start'));
+};
+
+function syncPause() { $('pause').textContent = paused ? 'Resume' : 'Pause'; }
+$('pause').onclick = () => post('/control', {action: paused ? 'resume' : 'pause'});
+$('hangup').onclick = () => post('/control', {action: 'hangup'});
+
+function send() {
+  const text = $('text').value.trim();
+  if (!text || !running) return;
+  $('text').value = '';
+  post('/say', {text});
+}
+$('send').onclick = send;
+$('text').addEventListener('keydown', (e) => { if (e.key === 'Enter') send(); });
+
+// ---------------------------------------------------------------- speech in
+//
+// The microphone is captured here and transcribed on the server, by the same
+// resolve_asr() the CLI uses -- Deepgram nova-3-medical when a key is present,
+// local faster-whisper otherwise.
+//
+// The browser's own SpeechRecognition was the obvious choice and is the wrong
+// one. It posts audio to Google, so it fails with `network` on any Chromium
+// build without Google API keys and on restricted networks, and when it does
+// work it is a fourth transcriber -- a drug name it mangles tells you nothing
+// about the pipeline the benchmark measures. Capturing raw audio and posting
+// it to /transcribe means the words that reach the agent came through exactly
+// the path evals/RUNME.md characterises.
+//
+// Endpoint detection mirrors channels.py, with the constants served from it by
+// /config rather than guessed again in JavaScript.
+
+let VAD = null, ASR = null;
+let audioCtx = null, micStream = null, procNode = null, srcNode = null;
+let micWanted = false;     // what the user asked for
+let micSuspended = false;  // held off while the agent speaks
+let capturing = false;     // the audio graph is running
+
+// Endpointing state. The noise floor outlives a single mic session: the room is
+// the same room on the second click, and a second of enforced silence before
+// every turn is a worse experience than a threshold that is a few minutes old.
+let noiseFloor = null;
+let threshold = 0.012, calibrating = false, calibPeak = 0, calibElapsed = 0;
+let recording = false, onsetRun = 0, silenceRun = 0, spoken = 0;
+let turnMin = Infinity, turnMax = 0;
+let chunks = [], preroll = [];
+
+// Steady noise loud enough to cross the threshold would otherwise be recorded
+// as a turn until max_turn_seconds and posted to the ASR -- 45 seconds of fan.
+// Speech and steady noise separate cleanly on dynamic range. Measured over
+// 128 ms blocks on evals/audio/corpus/renders, loudest block over 10th
+// percentile: real speech 3.6x (worst, noisy_phone) to 277x, steady noise
+// 1.07x. 1.6 sits with margin on both sides.
+const NOISE_FLAT_RATIO = 1.6;
+const NOISE_CHECK_SECONDS = 4.0;
+
+function micStatus(text, bad) {
+  $('micstate').textContent = text;
+  $('micstate').style.color = bad ? 'var(--err)' : '';
+}
+
+fetch('/config').then(r => r.json()).then(cfg => {
+  VAD = cfg.vad; ASR = cfg.asr;
+  threshold = VAD.silence_rms;
+  if (ASR.ready) {
+    $('m-asr').textContent = ASR.name;
+  } else {
+    $('m-asr').textContent = 'unavailable';
+    $('mic').disabled = true;
+    micStatus((ASR.error || 'no ASR backend').split('\n')[0], true);
+  }
+}).catch(() => { $('mic').disabled = true; micStatus('could not read /config', true); });
+
+const SECURE = window.isSecureContext || location.hostname === 'localhost'
+            || location.hostname === '127.0.0.1';
+if (!navigator.mediaDevices || !SECURE) {
+  $('mic').disabled = true;
+  micStatus('microphone needs https or localhost — reach this page on 127.0.0.1', true);
+}
+
+async function startMic() {
+  if (micWanted || !VAD || !ASR || !ASR.ready) return;
+  micWanted = true;
+  $('mic').classList.add('on');
+  micStatus('opening microphone…');
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({
+      audio: {channelCount: 1, echoCancellation: true, noiseSuppression: true,
+              autoGainControl: true},
+    });
+  } catch (err) {
+    micWanted = false;
+    $('mic').classList.remove('on');
+    micStatus(err.name === 'NotAllowedError'
+      ? 'microphone permission denied — allow it in the address bar, then click Speak again'
+      : 'microphone unavailable: ' + err.message, true);
+    return;
+  }
+
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)(
+    {sampleRate: VAD.sample_rate});
+  srcNode = audioCtx.createMediaStreamSource(micStream);
+  // ScriptProcessor is deprecated in favour of AudioWorklet, which needs a
+  // separate module file. This page is deliberately one file with no build
+  // step, and the node is universally supported.
+  procNode = audioCtx.createScriptProcessor(2048, 1, 1);
+  procNode.onaudioprocess = (e) => onBlock(e.inputBuffer.getChannelData(0));
+  srcNode.connect(procNode);
+  // Chrome will not run a ScriptProcessor that reaches no destination. A zero
+  // gain keeps the caller from hearing themselves through their own speakers.
+  const mute = audioCtx.createGain();
+  mute.gain.value = 0;
+  procNode.connect(mute);
+  mute.connect(audioCtx.destination);
+
+  capturing = true;
+  if (noiseFloor === null) {
+    beginCalibration();
+  } else {
+    // Already know this room. Start listening immediately and let the tracker
+    // in onBlock() correct the floor from here, rather than making the caller
+    // sit through another silent second they did not ask for.
+    applyFloor();
+    armed();
+  }
+}
+
+function applyFloor() {
+  threshold = Math.max(noiseFloor * VAD.calibration_headroom, VAD.silence_rms);
+}
+
+function armed() {
+  micStatus(`listening · ${ASR.name} · room ${noiseFloor.toFixed(4)}, `
+          + `threshold ${threshold.toFixed(4)}`);
+}
+
+function beginCalibration() {
+  // channels.py takes the LOUDEST ambient block, not the median: a room with
+  // an intermittent fan is quiet on average and quiet-on-average is what makes
+  // a threshold trip on nothing.
+  calibrating = true; calibPeak = 0; calibElapsed = 0;
+  resetTurn();
+  micStatus('measuring the room — stay quiet for a second…');
+}
+
+$('recal').onclick = () => { if (capturing) beginCalibration(); };
+
+function resetTurn() {
+  recording = false; onsetRun = 0; silenceRun = 0; spoken = 0;
+  turnMin = Infinity; turnMax = 0;
+  chunks = []; preroll = [];
+}
+
+function rmsOf(block) {
+  let sum = 0;
+  for (let i = 0; i < block.length; i++) sum += block[i] * block[i];
+  return Math.sqrt(sum / block.length);
+}
+
+// Keeps the floor honest between calibrations. Falls quickly when the room goes
+// quiet and rises slowly, so a passing truck does not permanently deafen the
+// threshold while a fan that switches on is still tracked within seconds.
+//
+// It runs on every idle block, INCLUDING blocks above the threshold. Gating it
+// on quiet blocks only is a deadlock: once the room rises past the threshold,
+// every block looks like speech, the floor never updates, and the mic
+// false-triggers forever. Speech is not a problem here because onset promotes
+// to recording after three blocks, so at most three ever reach this.
+function trackFloor(rms) {
+  noiseFloor = rms < noiseFloor ? 0.7 * noiseFloor + 0.3 * rms
+                                : 0.98 * noiseFloor + 0.02 * rms;
+  applyFloor();
+}
+
+function onBlock(block) {
+  if (!capturing || micSuspended) return;
+  const seconds = block.length / audioCtx.sampleRate;
+  const rms = rmsOf(block);
+
+  if (calibrating) {
+    calibPeak = Math.max(calibPeak, rms);
+    calibElapsed += seconds;
+    if (calibElapsed >= VAD.calibration_seconds) {
+      calibrating = false;
+      noiseFloor = calibPeak;
+      applyFloor();
+      armed();
+    }
+    return;
+  }
+
+  const copy = new Float32Array(block);  // the node reuses its buffer
+
+  if (!recording) {
+    trackFloor(rms);  // every idle block; see the note on trackFloor
+    // A short pre-roll means the first consonant of the turn is not clipped by
+    // the sustained-onset requirement below.
+    preroll.push(copy);
+    if (preroll.length > VAD.speech_onset_blocks + 2) preroll.shift();
+    if (rms > threshold) {
+      onsetRun++;
+      // Sustained onset only: a door or a keyboard is loud and short.
+      if (onsetRun >= VAD.speech_onset_blocks) {
+        recording = true;
+        chunks = preroll.slice();
+        spoken = chunks.length * seconds;
+        preroll = []; silenceRun = 0;
+        micStatus('recording…');
+      }
+    } else {
+      onsetRun = 0;
+    }
+    return;
+  }
+
+  chunks.push(copy);
+  spoken += seconds;
+  turnMin = Math.min(turnMin, rms);
+  turnMax = Math.max(turnMax, rms);
+  // Flat for several seconds is not a person talking. Bail before the turn
+  // runs to max_turn_seconds and posts the room to the transcriber.
+  if (spoken >= NOISE_CHECK_SECONDS && turnMax / Math.max(turnMin, 1e-6) < NOISE_FLAT_RATIO) {
+    abortAsNoise();
+    return;
+  }
+  silenceRun = rms < threshold ? silenceRun + seconds : 0;
+  if (silenceRun >= VAD.silence_seconds || spoken >= VAD.max_turn_seconds) {
+    endTurn();
+  }
+}
+
+function abortAsNoise() {
+  // turnMin is the quietest thing heard while "recording", which in a room
+  // this flat is the room itself.
+  const level = turnMin;
+  resetTurn();
+  noiseFloor = level;
+  applyFloor();
+  micStatus(`room noise rose to ${level.toFixed(4)} — threshold now `
+          + `${threshold.toFixed(4)}. If speech stops registering, click ↺ room `
+          + `or move somewhere quieter.`, true);
+}
+
+function endTurn() {
+  const captured = chunks;
+  const seconds = spoken;
+  resetTurn();
+  if (seconds - VAD.silence_seconds < VAD.min_turn_seconds) {
+    micStatus(`listening · ${ASR.name} — that was too short to send`);
+    return;
+  }
+  micStatus('transcribing…');
+  sendAudio(encodeWav(captured, audioCtx.sampleRate));
+}
+
+async function sendAudio(wav) {
+  try {
+    const res = await fetch('/transcribe', {
+      method: 'POST', headers: {'Content-Type': 'audio/wav'}, body: wav,
+    });
+    const data = await res.json();
+    if (!data.ok) { micStatus('transcription failed: ' + data.error, true); return; }
+    micStatus(`listening · ${data.backend}`);
+    if (!data.text) return;
+    $('text').value = data.text;
+    if ($('autosend').checked) send();
+  } catch (err) {
+    micStatus('transcription failed: ' + err.message, true);
+  }
+}
+
+function stopMic() {
+  micWanted = false; micSuspended = false; capturing = false; calibrating = false;
+  resetTurn();
+  $('mic').classList.remove('on');
+  micStatus('');
+  if (procNode) { procNode.onaudioprocess = null; try { procNode.disconnect(); } catch (_) {} }
+  if (srcNode) { try { srcNode.disconnect(); } catch (_) {} }
+  if (micStream) { for (const track of micStream.getTracks()) track.stop(); }
+  if (audioCtx) { try { audioCtx.close(); } catch (_) {} }
+  procNode = srcNode = micStream = audioCtx = null;
+}
+
+$('mic').onclick = () => micWanted ? stopMic() : startMic();
+
+// 16-bit PCM WAV: the one format both backends already take, so no server-side
+// transcode and no format negotiation with Deepgram.
+function encodeWav(blocks, rate) {
+  let total = 0;
+  for (const b of blocks) total += b.length;
+  const buffer = new ArrayBuffer(44 + total * 2);
+  const view = new DataView(buffer);
+  const ascii = (offset, text) => {
+    for (let i = 0; i < text.length; i++) view.setUint8(offset + i, text.charCodeAt(i));
+  };
+  ascii(0, 'RIFF'); view.setUint32(4, 36 + total * 2, true); ascii(8, 'WAVE');
+  ascii(12, 'fmt '); view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); view.setUint16(22, 1, true);
+  view.setUint32(24, rate, true); view.setUint32(28, rate * 2, true);
+  view.setUint16(32, 2, true); view.setUint16(34, 16, true);
+  ascii(36, 'data'); view.setUint32(40, total * 2, true);
+  let offset = 44;
+  for (const b of blocks) {
+    for (let i = 0; i < b.length; i++, offset += 2) {
+      const s = Math.max(-1, Math.min(1, b[i]));
+      view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+    }
+  }
+  return buffer;
+}
+
+// ---------------------------------------------------------------- speech out
+//
+// Synthesis is still the browser's, because it is output: a wrong voice is
+// cosmetic where a wrong transcript changes what the agent charts. It fails in
+// its own ways -- Chrome truncates an utterance after roughly fifteen seconds
+// and sometimes drops one without firing any callback -- so text goes out one
+// sentence at a time behind a watchdogged queue.
+
+const ttsQueue = [];
+let ttsBusy = false, ttsWatchdog = null;
+
+// The agent writes for a screen: markdown emphasis and hyphen-spelled drug
+// names. Read literally, "**hydroxyzine**" and "H-Y-D-R-O" come out as noise.
+function speakable(text) {
+  return text
+    .replace(/\*\*/g, '')
+    .replace(/\b([A-Za-z](?:-[A-Za-z]){2,})\b/g, (m) => m.split('-').join(', '))
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function sentences(text) {
+  const out = [];
+  for (const part of text.split(/(?<=[.!?;:])\s+/)) {
+    if (part.length <= 180) { if (part.trim()) out.push(part.trim()); continue; }
+    let buf = '';
+    for (const piece of part.split(/(?<=,)\s+/)) {
+      if ((buf + ' ' + piece).trim().length > 180) { if (buf) out.push(buf.trim()); buf = piece; }
+      else buf = (buf + ' ' + piece).trim();
+    }
+    if (buf.trim()) out.push(buf.trim());
+  }
+  return out;
+}
+
+function speak(text) {
+  if (replaying) return;  // catching up on history, not hearing a live turn
+  if (!$('tts').checked || !window.speechSynthesis) return;
+  const body = speakable(text);
+  if (!body) return;
+  ttsQueue.push(...sentences(body));
+  if (!ttsBusy) {
+    // Suspend rather than stop, so micWanted survives several agent turns in a
+    // row -- and so the caller is not transcribed saying the agent's own words
+    // back to it.
+    if (micWanted) { micSuspended = true; resetTurn(); }
+    pumpTTS();
+  }
+}
+
+function pumpTTS() {
+  const next = ttsQueue.shift();
+  if (next === undefined) {
+    ttsBusy = false;
+    if (ttsWatchdog) { clearTimeout(ttsWatchdog); ttsWatchdog = null; }
+    if (micSuspended) {
+      micSuspended = false;
+      // No re-calibration here. The room is the room; the floor tracker picks
+      // up any drift within a few idle blocks, and a silent second imposed
+      // before every single caller turn is worse than a slightly stale
+      // threshold.
+      resetTurn();
+      if (micWanted && capturing) armed();
+    }
+    return;
+  }
+  ttsBusy = true;
+  const utter = new SpeechSynthesisUtterance(next);
+  utter.rate = 1.05;
+  let done = false;
+  const advance = () => {
+    if (done) return;
+    done = true;
+    if (ttsWatchdog) { clearTimeout(ttsWatchdog); ttsWatchdog = null; }
+    pumpTTS();
+  };
+  utter.onend = advance;
+  utter.onerror = advance;
+  // Chrome sometimes drops an utterance without firing either callback, which
+  // would strand the queue and leave the mic suspended forever.
+  ttsWatchdog = setTimeout(advance, 2000 + next.length * 90);
+  speechSynthesis.speak(utter);
+}
+
+function stopSpeaking() {
+  ttsQueue.length = 0;
+  if (ttsWatchdog) { clearTimeout(ttsWatchdog); ttsWatchdog = null; }
+  ttsBusy = false;
+  if (window.speechSynthesis) speechSynthesis.cancel();
+  if (micSuspended) {
+    micSuspended = false;
+    resetTurn();
+    if (micWanted && capturing) armed();
+  }
+}
+
+// Voices load asynchronously; the first utterance is silent if it goes out
+// before they arrive. Touching the list primes it.
+if (window.speechSynthesis) {
+  speechSynthesis.getVoices();
+  speechSynthesis.onvoiceschanged = () => speechSynthesis.getVoices();
+  window.addEventListener('beforeunload', () => speechSynthesis.cancel());
+}
+$('tts').onchange = () => { if (!$('tts').checked) stopSpeaking(); };
+</script>

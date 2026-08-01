@@ -1,0 +1,1231 @@
+<!-- Experiment dashboard for the medical_reception agent.
+     Served by evals/live/bench.py. No build step, no external requests. -->
+<meta charset="utf-8">
+<title>experiments — medical_reception</title>
+<style>
+  :root {
+    --bg: #0e1116; --panel: #161b22; --edge: #262d38; --ink: #d6dde6;
+    --dim: #7d8998; --agent: #5fb0ff; --caller: #9ae6a0; --tool: #d9a441;
+    --warn: #ff9d5c; --err: #ff6b6b; --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+    /* Chart series colours. Six slots, checked as a categorical set against
+       this background for adjacent- AND all-pair separation under protan,
+       deutan and tritan simulation; the worst pair sits in the 6–8 floor band,
+       which is only legal because every series also carries a legend swatch
+       and a direct label at its last point. Splits past the sixth fall back to
+       --dim rather than getting a made-up seventh hue. */
+    --s0: #3d90e8; --s1: #b18406; --s2: #d35a9e;
+    --s3: #008872; --s4: #8b54c4; --s5: #c3441f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 14px/1.55 var(--mono);
+  }
+  header {
+    display: flex; gap: 14px; align-items: center; flex-wrap: wrap;
+    padding: 10px 16px; border-bottom: 1px solid var(--edge); background: var(--panel);
+    position: sticky; top: 0; z-index: 3;
+  }
+  h1 { font-size: 14px; margin: 0; font-weight: 600; letter-spacing: .02em; }
+  .meta { color: var(--dim); font-size: 12px; display: flex; gap: 14px; flex-wrap: wrap; }
+  .meta b { color: var(--ink); font-weight: 500; }
+  .chip {
+    font-family: var(--mono); font-size: 12px; padding: 2px 8px; border-radius: 5px;
+    border: 1px solid var(--edge); background: #0b0e13; color: var(--ink);
+  }
+  .pill {
+    padding: 2px 9px; border-radius: 99px; font-size: 11px; letter-spacing: .04em;
+    text-transform: uppercase; border: 1px solid var(--edge); color: var(--dim);
+  }
+  .pill.live { color: #0e1116; background: var(--caller); border-color: transparent; }
+  .pill.failed { color: #0e1116; background: var(--err); border-color: transparent; }
+  .pill.oos { color: #0e1116; background: var(--tool); border-color: transparent; }
+
+  select, input, button {
+    font: inherit; font-size: 12px; color: var(--ink); background: #0b0e13;
+    border: 1px solid var(--edge); border-radius: 6px; padding: 5px 9px;
+  }
+  button { cursor: pointer; }
+  button:hover:not(:disabled) { border-color: #3d4859; }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  button.primary { background: var(--agent); color: #06101c; border-color: transparent; font-weight: 600; }
+  button.danger { border-color: #5a2b2b; color: #ffb3b3; }
+
+  main { padding: 16px; display: flex; flex-direction: column; gap: 16px; }
+  .panel { border: 1px solid var(--edge); border-radius: 8px; background: var(--panel); }
+  .head {
+    padding: 7px 14px; font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--dim); border-bottom: 1px solid var(--edge);
+    display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+  }
+  .body { padding: 12px 14px; }
+  .cols { display: grid; grid-template-columns: 400px 1fr; gap: 16px; align-items: start; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .row + .row { margin-top: 9px; }
+  label.f { display: flex; gap: 6px; align-items: center; font-size: 12px; color: var(--dim); }
+  .note { color: var(--dim); font-size: 12px; margin: 6px 0; }
+  .warn { color: var(--warn); font-size: 12px; }
+  .err { color: var(--err); font-size: 12px; white-space: pre-wrap; }
+  .box {
+    border: 1px solid var(--edge); border-radius: 6px; padding: 10px; margin-top: 10px;
+    background: #0b0e13; font-size: 12px;
+  }
+  .box.loud { border-color: #6b4a1f; background: #1c1509; color: var(--warn); }
+  .box.loud b { color: var(--tool); }
+  .box.bad { border-color: #5a2b2b; background: #1c0f0f; color: #ffb3b3; }
+
+  #progress {
+    font-size: 12px; color: var(--tool); white-space: pre; overflow: hidden;
+    text-overflow: ellipsis; min-height: 18px; border-bottom: 1px solid var(--edge);
+    padding-bottom: 6px; margin-bottom: 6px;
+  }
+  #log { height: 260px; overflow-y: auto; font-size: 11.5px; }
+  #log .l { color: var(--dim); word-break: break-word; padding: 1px 0; }
+  #log .l.milestone { color: var(--ink); font-weight: 600; }
+  #log .l.bad { color: var(--err); }
+
+  svg { display: block; width: 100%; height: auto; }
+  .grid { stroke: var(--edge); stroke-width: 1; }
+  .axis { fill: var(--dim); font-size: 10px; }
+  .vmark { stroke: var(--dim); stroke-width: 1; stroke-dasharray: 3 4; opacity: .8; }
+  .vlabel { fill: var(--dim); font-size: 9px; }
+  /* Direct labels sit inside the plot, so they knock a halo out of whatever
+     line they land on rather than being read through it. */
+  .dlabel {
+    font-size: 10px; fill: var(--dim);
+    stroke: var(--bg); stroke-width: 3px; paint-order: stroke fill;
+  }
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 11.5px; color: var(--dim); padding: 0 14px 12px; }
+  .legend span.sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+
+  table { border-collapse: collapse; width: 100%; font-size: 12px; }
+  th {
+    text-align: left; color: var(--dim); font-weight: 500; font-size: 11px;
+    text-transform: uppercase; letter-spacing: .06em; padding: 6px 10px;
+    border-bottom: 1px solid var(--edge); white-space: nowrap;
+  }
+  td { padding: 5px 10px; border-bottom: 1px solid #1c222c; vertical-align: top; }
+  tr.newver td { border-top: 1px solid #3a4557; }
+  tr.newver td:first-child { box-shadow: inset 2px 0 0 var(--agent); }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  details summary { cursor: pointer; color: var(--dim); font-size: 11px; }
+  details .inner { padding: 8px 0 4px; color: var(--dim); }
+  details .inner b { color: var(--ink); font-weight: 500; }
+  details table { width: auto; }
+  details td { border: 0; padding: 1px 16px 1px 0; }
+  .empty { color: var(--dim); font-size: 12.5px; max-width: 70ch; }
+  .dim { color: var(--dim); }
+  button.mini { padding: 2px 8px; font-size: 11px; }
+  button.link {
+    background: none; border: 0; padding: 0; color: var(--agent);
+    font-size: 11px; cursor: pointer;
+  }
+  button.link:hover { text-decoration: underline; }
+
+  /* ---------------------------------------------------------- investigation
+     One recorded run, opened up: its case list, and one case's transcript at a
+     time. State is carried by a symbol *and* a colour *and* a left rule —
+     "which cases failed" has to survive a greyscale screenshot. */
+  .inv-head {
+    display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap;
+    padding: 10px 14px; border-bottom: 1px solid var(--edge); font-size: 12px;
+  }
+  .inv-head .name { font-weight: 600; font-size: 13px; }
+  .inv-msg { padding: 12px 14px; color: var(--dim); font-size: 12px; }
+  .inv-tools {
+    display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+    padding: 7px 14px; border-bottom: 1px solid var(--edge); font-size: 11.5px;
+    color: var(--dim);
+  }
+  .case {
+    display: grid; gap: 10px; align-items: baseline;
+    grid-template-columns: 96px 132px 124px 136px 46px minmax(0, 1fr);
+    padding: 6px 14px 6px 11px; cursor: pointer; font-size: 12px;
+    border-bottom: 1px solid #1c222c; border-left: 3px solid transparent;
+  }
+  .case:hover { background: #131922; }
+  .case.open { background: #1a212c; }
+  .case.pass { border-left-color: var(--caller); }
+  .case.fail { border-left-color: var(--err); background: #170f12; }
+  .case.fail:hover { background: #1d1216; }
+  .case.unscored { border-left-color: var(--tool); background: #171208; }
+  .case .st { font-weight: 600; white-space: nowrap; }
+  .case.pass .st { color: var(--caller); }
+  .case.fail .st { color: var(--err); }
+  .case.unscored .st { color: var(--tool); }
+  .case .tally, .case .dur {
+    color: var(--dim); font-variant-numeric: tabular-nums; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis;
+  }
+  .case .suite { color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .case .tally .short { color: var(--err); }
+  .case .why { color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .tx {
+    padding: 12px 14px 16px; background: #0b0e13;
+    border-top: 1px solid var(--edge); border-bottom: 1px solid var(--edge);
+  }
+  .tx-top { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+  .tx-top .who { font-size: 13px; font-weight: 600; }
+  .tx .purpose { color: var(--ink); font-size: 12.5px; margin: 8px 0 4px; max-width: 92ch; }
+  .sub {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--dim); margin: 16px 0 6px;
+  }
+  .code { font-family: var(--mono); white-space: pre-wrap; word-break: break-word; }
+  .assert {
+    display: flex; gap: 8px; align-items: flex-start; font-size: 12px;
+    border: 1px solid var(--edge); background: #10151d;
+    border-radius: 6px; padding: 5px 9px; margin-bottom: 5px;
+  }
+  .assert .mark { font-weight: 700; line-height: 1.4; }
+  .assert .txt { flex: 1; min-width: 0; white-space: pre-wrap; word-break: break-word; }
+  .assert.met { color: var(--dim); }
+  .assert.met .mark { color: var(--caller); }
+  .assert.miss { border-color: #7a3232; background: #1e0f11; color: #ffd6d6; }
+  .assert.miss .mark { color: var(--err); }
+  .assert .just { display: block; margin-top: 3px; color: var(--dim); }
+  .assert.miss .just { color: #e9a6a6; }
+
+  .msgs { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+  .m { max-width: 76%; min-width: 0; }
+  .m.user { align-self: flex-end; }
+  .m.assistant { align-self: flex-start; }
+  .m.tool { align-self: flex-start; max-width: 86%; }
+  .m .lbl {
+    font-size: 10px; letter-spacing: .06em; text-transform: uppercase;
+    color: #57616f; margin-bottom: 2px;
+  }
+  .m.user .lbl { text-align: right; }
+  .m .bub {
+    border: 1px solid var(--edge); border-radius: 7px; padding: 6px 9px;
+    font-size: 12.5px; white-space: pre-wrap; word-break: break-word;
+  }
+  .m.assistant .bub { background: #0f1723; border-color: #1e3550; }
+  .m.user .bub { background: #0f1a12; border-color: #244a2a; }
+  .m .call {
+    font-family: var(--mono); font-size: 11.5px; color: var(--tool);
+    background: #120e07; border: 1px solid #3a2f14; border-radius: 6px;
+    padding: 5px 8px; margin-top: 4px; white-space: pre-wrap; word-break: break-word;
+  }
+  .m .res {
+    font-family: var(--mono); font-size: 11px; color: var(--dim);
+    background: #0d1119; border: 1px solid var(--edge); border-radius: 6px;
+    padding: 5px 8px; white-space: pre-wrap; word-break: break-word;
+  }
+  .m.tool.bad .res { border-color: #5a2b2b; color: #ffb3b3; }
+</style>
+
+<header>
+  <h1>experiments · medical_reception</h1>
+  <span class="chip" id="v-id" title="content hash of policy.md + domain python + model id">—</span>
+  <div class="meta">
+    <span>model <b id="v-model">—</b></span>
+    <span id="v-changed">—</span>
+  </div>
+  <div class="meta" style="margin-left:auto">
+    <span>oos looks spent <b id="v-peeks">—</b></span>
+    <span class="pill" id="state">idle</span>
+  </div>
+</header>
+
+<main>
+  <div class="cols">
+    <div class="panel">
+      <div class="head">launch a run</div>
+      <div class="body">
+        <div class="row">
+          <label class="f">split <select id="split"></select></label>
+          <label class="f">trials <input id="trials" type="number" min="1" max="5" value="1" style="width:56px"></label>
+        </div>
+        <div class="row">
+          <label class="f" style="flex:1">agent model
+            <input id="agent" style="flex:1;min-width:180px" spellcheck="false">
+          </label>
+        </div>
+        <div class="row">
+          <button id="run" class="primary">Run</button>
+          <button id="stop" class="danger" disabled>Stop</button>
+          <span class="note" id="estimate"></span>
+        </div>
+        <div class="box loud" id="oosbox" hidden>
+          <b>oos is the held-out final exam.</b>
+          Every run of it spends a look. A holdout you check each commit is not
+          held out — it is training signal with a nicer name, and the number it
+          prints stops predicting anything about unseen cases.
+          <div style="margin-top:8px" id="oospeeks"></div>
+          <label class="f" style="margin-top:8px;color:inherit">
+            <input type="checkbox" id="confirm"> this is a final, deliberate evaluation
+          </label>
+        </div>
+        <div class="box bad" id="launcherr" hidden></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="head">live run <span id="runinfo" style="text-transform:none;letter-spacing:0"></span></div>
+      <div class="body">
+        <div id="progress"></div>
+        <div class="note" id="idlehint">no run in progress — launching one streams
+          run.sh here. milestones bold, the tqdm bar on the line above, everything
+          else in the log.</div>
+        <div id="log"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="head">pass rate over recorded runs</div>
+    <div id="chart"></div>
+    <div class="legend" id="legend"></div>
+  </div>
+
+  <div class="panel">
+    <div class="head">recorded runs <span id="runcount" style="text-transform:none;letter-spacing:0"></span></div>
+    <div id="table"></div>
+  </div>
+
+  <div class="panel" id="invpanel" hidden>
+    <div class="head">
+      investigation
+      <span id="invtitle" style="text-transform:none;letter-spacing:0"></span>
+      <button id="invclose" class="mini" style="margin-left:auto">close</button>
+    </div>
+    <div id="invbody"></div>
+  </div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const SVGNS = 'http://www.w3.org/2000/svg';
+
+let STATE = null;
+let lastSeq = -1;
+// True while the server flushes durable history to a fresh EventSource. The
+// browser reconnects on its own and replays from the top, so this is re-armed
+// on every open rather than once at load.
+let replaying = true;
+
+function el(tag, cls, text) {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text !== undefined) n.textContent = text;
+  return n;
+}
+function svg(tag, attrs) {
+  const n = document.createElementNS(SVGNS, tag);
+  for (const [k, v] of Object.entries(attrs || {})) n.setAttribute(k, v);
+  return n;
+}
+async function post(path, body) {
+  const r = await fetch(path, {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body || {}),
+  });
+  return r.json();
+}
+
+// ---------------------------------------------------------------- formatting
+const pct = (v) => (v === null || v === undefined || Number.isNaN(v))
+  ? '—' : (v * 100).toFixed(1) + '%';
+
+// Headline values are a mix of rates (0–1) and raw counts, keyed only by their
+// human label. The label is the only signal for which is which.
+function headlineValue(label, v) {
+  if (v === null || v === undefined) return '—';
+  if (typeof v !== 'number') return String(v);
+  if (/rate|accuracy/i.test(label)) return pct(v);
+  return Number.isInteger(v) ? String(v) : v.toFixed(2);
+}
+
+function humanSeconds(s) {
+  if (!s || s < 0) return '';
+  if (s < 90) return '~' + Math.round(s) + ' s';
+  const mins = Math.round(s / 60);
+  if (mins < 90) return '~' + mins + ' min';
+  const h = Math.floor(mins / 60), m = mins % 60;
+  return '~' + h + ' h' + (m ? ' ' + m + ' min' : '');
+}
+
+function shortTime(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return String(iso);
+  return d.toLocaleString([], {month: 'short', day: '2-digit',
+                              hour: '2-digit', minute: '2-digit'});
+}
+
+// Colour follows the split, not its rank in the current chart: the index comes
+// from the full split list the server reports, so filtering the history down to
+// two splits never repaints them.
+const PALETTE = ['var(--s0)', 'var(--s1)', 'var(--s2)', 'var(--s3)', 'var(--s4)', 'var(--s5)'];
+const SPLIT_PREF = ['backtest', 'oos', 'smoke', 'base', 'safety', 'functional'];
+function splitOrder() {
+  const known = Object.keys((STATE && STATE.splits) || {});
+  const rest = known.filter((s) => !SPLIT_PREF.includes(s)).sort();
+  return SPLIT_PREF.filter((s) => known.includes(s)).concat(rest);
+}
+function splitColor(name) {
+  const i = splitOrder().indexOf(name);
+  return (i >= 0 && i < PALETTE.length) ? PALETTE[i] : 'var(--dim)';
+}
+const isOos = (name) => ((STATE && STATE.oos_splits) || []).includes(name);
+
+// ---------------------------------------------------------------- state
+async function refresh() {
+  const r = await fetch('/api/state');
+  STATE = await r.json();
+  drawVersion();
+  drawLaunch();
+  drawChart();
+  drawTable();
+}
+
+function drawVersion() {
+  const v = STATE.version || {};
+  $('v-id').textContent = v.id || '—';
+  $('v-id').title = Object.entries(v.files || {})
+    .map(([n, h]) => n + '  ' + h).join('\n') || 'no files hashed';
+  $('v-model').textContent = v.model || '—';
+  const changed = STATE.changed_since_last_run;
+  const node = $('v-changed');
+  if (changed === null || changed === undefined) {
+    node.textContent = 'no runs recorded yet';
+    node.className = '';
+  } else if (changed.length === 0) {
+    node.textContent = 'unchanged since last run';
+    node.className = '';
+  } else {
+    node.textContent = 'changed since last recorded run: ' + changed.join(', ');
+    node.className = 'warn';
+  }
+  $('v-peeks').textContent = STATE.oos_peeks_this_version + ' this version / '
+    + STATE.oos_peeks_total + ' ever';
+}
+
+let launchWired = false;
+function drawLaunch() {
+  const sel = $('split');
+  const want = sel.value || (STATE.defaults || {}).split;
+  sel.innerHTML = '';
+  for (const [name, count] of Object.entries(STATE.splits || {})) {
+    const o = el('option', null, name + ' (' + count + ')');
+    o.value = name;
+    sel.appendChild(o);
+  }
+  if (want && STATE.splits && want in STATE.splits) sel.value = want;
+
+  if (!launchWired) {
+    $('trials').value = (STATE.defaults || {}).trials || 1;
+    $('agent').value = (STATE.defaults || {}).agent_llm || '';
+    sel.onchange = syncLaunch;
+    $('trials').oninput = syncLaunch;
+    $('confirm').onchange = syncLaunch;
+    launchWired = true;
+  }
+  const running = !!STATE.running;
+  if (running) setRunInfo(STATE.running);
+  $('state').textContent = running ? 'running' : 'idle';
+  $('state').className = 'pill' + (running ? ' live' : '');
+  syncLaunch();
+}
+
+function syncLaunch() {
+  const split = $('split').value;
+  const trials = Math.max(1, Math.min(5, +$('trials').value || 1));
+  const cases = (STATE.splits || {})[split] || 0;
+  const seconds = cases * (STATE.seconds_per_case_estimate || 0) * trials;
+  $('estimate').textContent = cases
+    ? humanSeconds(seconds) + ' · ' + cases + ' cases × ' + trials + ' trial'
+      + (trials > 1 ? 's' : '')
+    : '';
+
+  const oos = isOos(split);
+  $('oosbox').hidden = !oos;
+  if (oos) {
+    const n = STATE.oos_peeks_this_version;
+    $('oospeeks').textContent = n === 0
+      ? 'this version has been examined 0 times — the number it produces is still clean'
+      : 'this version has been examined ' + n + ' time' + (n > 1 ? 's' : '')
+        + ' — the number is no longer clean';
+  }
+  const running = !!STATE.running;
+  // The oos gate is a checkbox rather than a confirm() because the decision is
+  // not "did you mean to click" — it is "is this version finished". You should
+  // have to look at the peek counter above before you can answer.
+  $('run').disabled = running || (oos && !$('confirm').checked);
+  $('stop').disabled = !running;
+}
+
+// ---------------------------------------------------------------- chart
+//
+// Two things must be readable apart at a glance: which split a point belongs to
+// (colour + legend + a direct label on the last point of each series) and
+// whether it was in-sample or the holdout (shape — oos points are diamonds with
+// a heavy stroke). Colour alone would not survive a colourblind reader or a
+// greyscale screenshot, and oos-vs-backtest is the whole question the page
+// exists to answer.
+const CW = 960, CH = 300, PL = 46, PR = 92, PT = 14, PB = 34;
+
+function chartPoints() {
+  const out = [];
+  for (const rec of (STATE.experiments || [])) {
+    if (rec.error) continue;
+    const rate = ((rec.summary || {}).pass_rate);
+    if (typeof rate !== 'number') continue;  // unscored runs have no y
+    out.push({
+      rate, split: rec.split || '?', at: rec.recorded_at,
+      version: ((rec.version || {}).id) || '',
+      oos: !!rec.oos, cases: (rec.summary || {}).cases,
+      passed: (rec.summary || {}).passed, run_name: rec.run_name,
+    });
+  }
+  return out;
+}
+
+function drawChart() {
+  const host = $('chart');
+  const legend = $('legend');
+  host.innerHTML = '';
+  legend.innerHTML = '';
+  const pts = chartPoints();
+  if (!pts.length) {
+    // The paragraph explaining the loop lives under the table; here just say
+    // why the box is blank rather than printing it twice.
+    const note = el('div', 'note', (STATE.experiments || []).length
+      ? 'recorded runs exist but none carry a pass rate — see the table below'
+      : 'nothing recorded yet');
+    note.style.padding = '10px 14px';
+    host.appendChild(note);
+    return;
+  }
+
+  const root = svg('svg', {viewBox: '0 0 ' + CW + ' ' + CH,
+                          preserveAspectRatio: 'xMidYMid meet'});
+  // One point would make (n-1) a zero divisor; park it in the middle instead.
+  const span = CW - PL - PR;
+  const x = (i) => pts.length === 1 ? PL + span / 2 : PL + i * span / (pts.length - 1);
+  const y = (r) => PT + (1 - Math.max(0, Math.min(1, r))) * (CH - PT - PB);
+
+  for (const v of [0, 0.25, 0.5, 0.75, 1]) {
+    root.appendChild(svg('line', {class: 'grid', x1: PL, x2: CW - PR + 8,
+                                  y1: y(v), y2: y(v)}));
+    const t = svg('text', {class: 'axis', x: PL - 8, y: y(v) + 3.5, 'text-anchor': 'end'});
+    t.textContent = Math.round(v * 100) + '%';
+    root.appendChild(t);
+  }
+
+  // A dashed rule wherever the agent identity changes between two consecutive
+  // runs in time order. Without it the line reads as one continuous experiment
+  // when it is really several different agents measured in sequence.
+  for (let i = 1; i < pts.length; i++) {
+    if (pts[i].version === pts[i - 1].version) continue;
+    const mx = (x(i) + x(i - 1)) / 2;
+    root.appendChild(svg('line', {class: 'vmark', x1: mx, x2: mx, y1: PT - 6, y2: CH - PB}));
+    const label = svg('text', {class: 'vlabel', x: mx + 3, y: PT - 1});
+    label.textContent = pts[i].version.slice(0, 6);
+    root.appendChild(label);
+  }
+
+  const bySplit = new Map();
+  pts.forEach((p, i) => {
+    if (!bySplit.has(p.split)) bySplit.set(p.split, []);
+    bySplit.get(p.split).push({p, i});
+  });
+  const direct = bySplit.size <= 4;  // labels on every series only while legible
+  const labels = [];  // drawn last, so a later series cannot paint over them
+
+  for (const [name, items] of bySplit) {
+    const color = splitColor(name);
+    if (items.length > 1) {
+      root.appendChild(svg('polyline', {
+        fill: 'none', stroke: color, 'stroke-width': 2, 'stroke-linejoin': 'round',
+        points: items.map(({p, i}) => x(i) + ',' + y(p.rate)).join(' '),
+      }));
+    }
+    for (const {p, i} of items) {
+      const cx = x(i), cy = y(p.rate);
+      const mark = p.oos
+        // A filled diamond with a background-coloured ring: the holdout is not
+        // another sample of the same series, and should not read as one.
+        ? svg('path', {d: 'M' + cx + ' ' + (cy - 7) + 'L' + (cx + 7) + ' ' + cy
+                          + 'L' + cx + ' ' + (cy + 7) + 'L' + (cx - 7) + ' ' + cy + 'Z',
+                       fill: color, stroke: 'var(--bg)', 'stroke-width': 2})
+        : svg('circle', {cx, cy, r: 4.5, fill: color, stroke: 'var(--bg)', 'stroke-width': 2});
+      const title = svg('title', {});
+      title.textContent = [
+        p.split + (p.oos ? ' (out of sample)' : ''),
+        pct(p.rate) + '  ' + (p.passed ?? '?') + '/' + (p.cases ?? '?'),
+        'version ' + (p.version || '?'),
+        shortTime(p.at), p.run_name || '',
+      ].filter(Boolean).join('\n');
+      mark.appendChild(title);
+      root.appendChild(mark);
+    }
+    if (direct) {
+      // Label the series at its last point. A series that stopped early would
+      // put its label in the middle of the plot, on top of whatever else is
+      // there, so only points near the right margin get the inline treatment.
+      const last = items[items.length - 1];
+      const lx = x(last.i), ly = y(last.p.rate);
+      const t = (lx > CW - PR - 40)
+        ? svg('text', {class: 'dlabel', x: lx + 12, y: ly + 3.5})
+        : svg('text', {class: 'dlabel', x: lx, y: ly - 11, 'text-anchor': 'middle'});
+      t.textContent = name;
+      labels.push(t);
+    }
+  }
+  for (const t of labels) root.appendChild(t);
+
+  root.appendChild(svg('line', {class: 'grid', x1: PL, x2: CW - PR + 8,
+                                y1: CH - PB, y2: CH - PB}));
+  const stamps = pts.length === 1 ? [0] : [0, pts.length - 1];
+  for (const i of stamps) {
+    const t = svg('text', {class: 'axis', x: x(i), y: CH - PB + 15,
+                           'text-anchor': i === 0 ? 'start' : 'end'});
+    t.textContent = shortTime(pts[i].at);
+    root.appendChild(t);
+  }
+  host.appendChild(root);
+
+  for (const name of bySplit.keys()) {
+    const item = el('span');
+    const sw = el('span', 'sw');
+    sw.style.background = splitColor(name);
+    if (isOos(name)) sw.style.borderRadius = '0';
+    item.appendChild(sw);
+    item.appendChild(document.createTextNode(name + (isOos(name) ? ' · holdout ◆' : '')));
+    legend.appendChild(item);
+  }
+  legend.appendChild(el('span', null,
+    'dashed rule = the agent changed between those two runs'));
+}
+
+function emptyState() {
+  return el('div', 'empty',
+    'Nothing recorded yet. The loop: the files that define the agent — policy.md, '
+    + 'the domain python, the model id — hash into the version id in the header; '
+    + 'you run the backtest split against that version and read the failures; you '
+    + 'edit, which mints a new version, and run it again. When a version looks '
+    + 'finished you spend one look at oos, and only one. The chart above is that '
+    + 'history; it is only worth reading because the version id says which agent '
+    + 'produced each point.');
+}
+
+// ---------------------------------------------------------------- table
+const SAFETY_COLS = ['FALSE CONFIRMATION rate', 'LASA substitution rate'];
+
+function drawTable() {
+  const host = $('table');
+  host.innerHTML = '';
+  const runs = (STATE.experiments || []).slice().reverse();  // newest first
+  $('runcount').textContent = runs.length ? '(' + runs.length + ')' : '';
+  if (!runs.length) {
+    const wrap = el('div');
+    wrap.style.padding = '12px 14px';
+    wrap.appendChild(emptyState());
+    host.appendChild(wrap);
+    return;
+  }
+
+  const table = el('table');
+  const head = el('tr');
+  for (const h of ['recorded', 'version', 'split', 'trials', 'passed',
+                   'pass rate', 'false confirm', 'lasa sub', '', '']) {
+    head.appendChild(el('th', null, h));
+  }
+  table.appendChild(head);
+
+  runs.forEach((rec, idx) => {
+    if (rec.error) {
+      // A corrupt registry file is a fact about the registry, not a reason to
+      // blank the page.
+      const tr = el('tr');
+      const td = el('td', 'warn');
+      td.colSpan = 10;
+      td.textContent = '⚠ unreadable record ' + (rec.registry_file || '') + ' — ' + rec.error;
+      tr.appendChild(td);
+      table.appendChild(tr);
+      return;
+    }
+    const s = rec.summary || {};
+    const v = rec.version || {};
+    // The next *readable* record below, so a corrupt file wedged between two
+    // runs of the same version does not read as a version change.
+    let older = null;
+    for (let j = idx + 1; j < runs.length; j++) {
+      if (!runs[j].error) { older = runs[j]; break; }
+    }
+    const newVersion = !older || ((older.version || {}).id !== v.id);
+
+    const tr = el('tr', newVersion ? 'newver' : null);
+    tr.appendChild(el('td', null, shortTime(rec.recorded_at)));
+
+    const vt = el('td');
+    const chip = el('span', 'chip', v.id || '—');
+    if (v.files_changed_during_run) chip.style.borderColor = '#5a2b2b';
+    vt.appendChild(chip);
+    tr.appendChild(vt);
+
+    const st = el('td');
+    const tag = el('span', rec.oos ? 'pill oos' : null, rec.split || '—');
+    st.appendChild(tag);
+    tr.appendChild(st);
+
+    tr.appendChild(el('td', 'num', String(rec.trials ?? '—')));
+
+    const pt = el('td');
+    pt.appendChild(document.createTextNode((s.passed ?? '—') + '/' + (s.cases ?? '—')));
+    if (s.cases_not_scored) {
+      pt.appendChild(el('div', 'warn', s.cases_not_scored + ' not scored'));
+    }
+    tr.appendChild(pt);
+
+    tr.appendChild(el('td', 'num', pct(s.pass_rate)));
+    for (const key of SAFETY_COLS) {
+      const hv = (s.headline || {})[key];
+      const cell = el('td', 'num', hv === undefined ? '—' : headlineValue(key, hv));
+      if (typeof hv === 'number' && hv > 0) cell.style.color = 'var(--err)';
+      tr.appendChild(cell);
+    }
+
+    const dt = el('td');
+    dt.appendChild(detailsFor(rec, s, v));
+    tr.appendChild(dt);
+
+    // The detail disclosure answers "what was this run"; investigate answers
+    // "which of its cases failed, and why" — a different question, a different
+    // affordance, and the one you actually came for after a bad number.
+    const it = el('td');
+    const btn = el('button', 'mini', 'investigate ›');
+    if (!rec.registry_file) {
+      btn.disabled = true;
+      btn.title = 'this record has no registry file to read cases from';
+    } else {
+      btn.title = 'open every case this run scored';
+      btn.onclick = () => openInvestigation(rec.registry_file);
+    }
+    it.appendChild(btn);
+    tr.appendChild(it);
+    table.appendChild(tr);
+  });
+  host.appendChild(table);
+}
+
+function detailsFor(rec, s, v) {
+  const d = el('details');
+  d.appendChild(el('summary', null, 'detail'));
+  const inner = el('div', 'inner');
+
+  if (v.files_changed_during_run) {
+    inner.appendChild(el('div', 'err',
+      'files changed during this run — measurement is tainted: '
+      + v.files_changed_during_run.join(', ')));
+  }
+  const kv = el('table');
+  const row = (k, val) => {
+    const tr = el('tr');
+    tr.appendChild(el('td', null, k));
+    tr.appendChild(el('td', null, val === undefined || val === null ? '—' : String(val)));
+    kv.appendChild(tr);
+  };
+  row('run name', rec.run_name);
+  row('results', rec.results_path);
+  row('user llm', rec.user_llm);
+  row('model', v.model);
+  row('registry file', rec.registry_file);
+  inner.appendChild(kv);
+
+  const suites = s.per_suite || {};
+  if (Object.keys(suites).length) {
+    inner.appendChild(el('div', null, ' '));
+    inner.appendChild(el('b', null, 'per suite'));
+    const t = el('table');
+    for (const [name, b] of Object.entries(suites)) {
+      const tr = el('tr');
+      tr.appendChild(el('td', null, name));
+      tr.appendChild(el('td', null, (b.passed ?? '—') + '/' + (b.cases ?? '—')));
+      tr.appendChild(el('td', null, pct(b.pass_rate)));
+      t.appendChild(tr);
+    }
+    inner.appendChild(t);
+  }
+
+  const headline = s.headline || {};
+  if (Object.keys(headline).length) {
+    inner.appendChild(el('div', null, ' '));
+    inner.appendChild(el('b', null, 'headline metrics'));
+    const t = el('table');
+    for (const [k, val] of Object.entries(headline)) {
+      const tr = el('tr');
+      tr.appendChild(el('td', null, k));
+      tr.appendChild(el('td', null, headlineValue(k, val)));
+      t.appendChild(tr);
+    }
+    inner.appendChild(t);
+  }
+  d.appendChild(inner);
+  return d;
+}
+
+// ---------------------------------------------------------------- investigation
+//
+// A recorded run opened up case by case. The table above says 5/10; this says
+// *which* five, and one click deeper, the transcript and the grader's verdict
+// that produced the number. Read-only: two GETs, no state on the server.
+
+let INV = null;       // {file, run, cases} — the run currently opened
+let INV_FAILS = false;  // "only failures" filter
+
+async function getJSON(url) {
+  const r = await fetch(url);
+  let data = null;
+  try { data = await r.json(); } catch (e) { data = null; }
+  if (!r.ok || !data) {
+    // The server's own message is the useful one ("no recorded run named …",
+    // "results file … is unreadable"); the status code is the fallback.
+    throw new Error((data && data.error) || ('request failed — HTTP ' + r.status));
+  }
+  return data;
+}
+
+// Compact when it fits on a line, pretty-printed when it does not. Strings pass
+// through untouched: user_instructions and persona are sometimes plain prose.
+function jsonish(value, limit) {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string') return value;
+  const compact = JSON.stringify(value);
+  if (compact === undefined) return String(value);
+  return compact.length <= (limit || 90) ? compact : JSON.stringify(value, null, 2);
+}
+
+// Long tool results are the bulk of a transcript by volume and the least of it
+// by information, so they open truncated with the full text one click away.
+function clamped(text, cls, limit) {
+  const node = el('div', cls);
+  const full = String(text ?? '');
+  const cap = limit || 340;
+  if (full.length <= cap) {
+    node.textContent = full;
+    return node;
+  }
+  const body = el('div', null, full.slice(0, cap) + ' …');
+  const more = el('button', 'link', 'show more (' + full.length + ' chars)');
+  let open = false;
+  more.onclick = (e) => {
+    e.stopPropagation();
+    open = !open;
+    body.textContent = open ? full : full.slice(0, cap) + ' …';
+    more.textContent = open ? 'show less' : 'show more (' + full.length + ' chars)';
+  };
+  node.appendChild(body);
+  node.appendChild(more);
+  return node;
+}
+
+const caseKey = (c) => (c.task_id || '') + '#' + (c.trial ?? 0);
+const caseState = (c) => !c.scored ? 'unscored' : (c.passed ? 'pass' : 'fail');
+const STATE_MARK = {pass: '✓ pass', fail: '✗ fail', unscored: '⊘ not scored'};
+
+function invMessage(text, bad) {
+  const host = $('invbody');
+  host.innerHTML = '';
+  const node = bad ? el('div', 'box bad', text) : el('div', 'inv-msg', text);
+  if (bad) node.style.margin = '12px 14px';
+  host.appendChild(node);
+}
+
+async function openInvestigation(file) {
+  const panel = $('invpanel');
+  panel.hidden = false;
+  $('invtitle').textContent = file;
+  INV = null;
+  invMessage('reading ' + file + ' …');
+  panel.scrollIntoView({block: 'nearest'});
+  try {
+    const data = await getJSON('/api/investigate?run=' + encodeURIComponent(file));
+    INV = {file, run: data.run || {}, cases: data.cases || []};
+    drawInvestigation();
+  } catch (err) {
+    invMessage('could not open ' + file + '\n' + err.message, true);
+  }
+}
+
+function drawInvestigation() {
+  const host = $('invbody');
+  host.innerHTML = '';
+  const run = INV.run || {};
+  const s = run.summary || {};
+  const v = run.version || {};
+
+  const head = el('div', 'inv-head');
+  head.appendChild(el('span', 'name', run.run_name || INV.file));
+  const chip = el('span', 'chip', v.id || '—');
+  chip.title = 'agent version that produced this run';
+  head.appendChild(chip);
+  head.appendChild(el('span', run.oos ? 'pill oos' : 'pill', run.split || '—'));
+  head.appendChild(el('span', 'dim', shortTime(run.recorded_at)));
+  const scoredCases = INV.cases.filter((c) => c.scored);
+  const failed = scoredCases.filter((c) => !c.passed).length;
+  const unscored = INV.cases.length - scoredCases.length;
+  const tally = el('span');
+  tally.style.marginLeft = 'auto';
+  tally.appendChild(document.createTextNode(
+    (s.passed ?? scoredCases.filter((c) => c.passed).length) + '/'
+    + (s.cases ?? INV.cases.length) + ' passed · ' + pct(s.pass_rate)));
+  if (failed) {
+    const f = el('span', null, ' · ' + failed + ' failed');
+    f.style.color = 'var(--err)';
+    tally.appendChild(f);
+  }
+  if (unscored) {
+    const u = el('span', null, ' · ' + unscored + ' not scored');
+    u.style.color = 'var(--tool)';
+    tally.appendChild(u);
+  }
+  head.appendChild(tally);
+  host.appendChild(head);
+
+  const tools = el('div', 'inv-tools');
+  const lab = el('label', 'f');
+  const box = el('input');
+  box.type = 'checkbox';
+  box.checked = INV_FAILS;
+  box.onchange = () => { INV_FAILS = box.checked; drawInvestigation(); };
+  lab.appendChild(box);
+  lab.appendChild(document.createTextNode('only failures and unscored'));
+  tools.appendChild(lab);
+  tools.appendChild(el('span', null, 'click a case for its transcript and grading'));
+  tools.appendChild(el('span', 'dim', INV.file));
+  host.appendChild(tools);
+
+  const list = el('div', 'cases');
+  const shown = INV.cases.filter((c) => !INV_FAILS || caseState(c) !== 'pass');
+  if (!shown.length) {
+    list.appendChild(el('div', 'inv-msg', INV.cases.length
+      ? 'every case in this run passed'
+      : 'this run recorded no simulations'));
+  }
+  for (const c of shown) list.appendChild(caseRow(c));
+  host.appendChild(list);
+}
+
+function caseRow(c) {
+  const state = caseState(c);
+  const row = el('div', 'case ' + state);
+  row.appendChild(el('span', 'st', STATE_MARK[state]));
+  row.appendChild(el('span', 'id', (c.task_id || '?')
+    + ((c.trial ?? 0) ? ' #' + c.trial : '')));
+  const suite = el('span', 'suite', c.suite || '—');
+  suite.title = c.suite || '';
+  row.appendChild(suite);
+
+  const tally = el('span', 'tally');
+  const part = (label, met, total) => {
+    if (!total) return;
+    if (tally.childNodes.length) tally.appendChild(document.createTextNode(' · '));
+    const span = el('span', met < total ? 'short' : null,
+                    label + ' ' + met + '/' + total);
+    tally.appendChild(span);
+  };
+  part('env', c.env_assertions_met, c.env_assertions_total);
+  part('nl', c.nl_assertions_met, c.nl_assertions_total);
+  if (!tally.childNodes.length) {
+    tally.appendChild(el('span', 'dim', c.scored ? 'no assertions' : '—'));
+  }
+  row.appendChild(tally);
+
+  row.appendChild(el('span', 'dur',
+    typeof c.duration === 'number' ? c.duration.toFixed(0) + 's' : '—'));
+
+  const why = el('span', 'why', c.purpose
+    || (c.scored ? '' : (c.termination_reason || 'not scored')));
+  why.title = c.purpose || '';
+  row.appendChild(why);
+
+  row.onclick = () => {
+    if (row.classList.contains('open')) { closeCase(); return; }
+    openCase(c, row);
+  };
+  return row;
+}
+
+function closeCase() {
+  const open = document.getElementById('txhost');
+  if (open) open.remove();
+  for (const r of document.querySelectorAll('.case.open')) r.classList.remove('open');
+}
+
+async function openCase(c, row) {
+  closeCase();  // one transcript at a time — two is a diffing tool, not this
+  row.classList.add('open');
+  const host = el('div', 'tx');
+  host.id = 'txhost';
+  host.appendChild(el('div', 'inv-msg', 'reading transcript …'));
+  row.after(host);
+  const url = '/api/investigate?run=' + encodeURIComponent(INV.file)
+    + '&task=' + encodeURIComponent(c.task_id)
+    + '&trial=' + encodeURIComponent(c.trial ?? 0);
+  try {
+    const detail = await getJSON(url);
+    host.innerHTML = '';
+    renderTranscript(host, detail);
+  } catch (err) {
+    host.innerHTML = '';
+    host.appendChild(el('div', 'box bad',
+      'could not read ' + (c.task_id || '') + '\n' + err.message));
+  }
+}
+
+function renderTranscript(host, d) {
+  const state = caseState(d);
+
+  const top = el('div', 'tx-top');
+  const mark = el('span', 'who', STATE_MARK[state] + '  ' + (d.task_id || ''));
+  mark.style.color = state === 'pass' ? 'var(--caller)'
+    : state === 'fail' ? 'var(--err)' : 'var(--tool)';
+  top.appendChild(mark);
+  top.appendChild(el('span', 'chip', d.suite || '—'));
+  top.appendChild(el('span', 'dim', 'reward '
+    + (typeof d.reward === 'number' ? d.reward.toFixed(2) : '—')
+    + ' · ended ' + (d.termination_reason || '?')
+    + ' · ' + (typeof d.duration === 'number' ? d.duration.toFixed(1) + 's' : '—')
+    + ' · ' + (d.messages || []).length + ' messages'));
+  const close = el('button', 'mini', 'close');
+  close.style.marginLeft = 'auto';
+  close.onclick = closeCase;
+  top.appendChild(close);
+  host.appendChild(top);
+
+  if (d.purpose) host.appendChild(el('div', 'purpose', d.purpose));
+  if (!d.scored) {
+    host.appendChild(el('div', 'box loud',
+      'this case was not scored — the simulation did not finish ('
+      + (d.termination_reason || 'unknown reason') + '). It is a missing '
+      + 'measurement, not a failure, and does not count against the pass rate.'));
+  }
+
+  // The scenario the caller was given. Long, and read second at most, so it is
+  // folded away rather than pushing the grading below the fold.
+  const setup = el('details');
+  setup.appendChild(el('summary', null, 'caller instructions & persona'));
+  const inner = el('div', 'inner');
+  for (const [label, value] of [['persona', d.persona],
+                                ['instructions', d.user_instructions]]) {
+    if (value === null || value === undefined || value === '') continue;
+    inner.appendChild(el('b', null, label));
+    inner.appendChild(clamped(jsonish(value, 0), 'code', 1200));
+  }
+  if (!inner.childNodes.length) inner.appendChild(el('div', 'dim', 'none recorded'));
+  setup.appendChild(inner);
+  host.appendChild(setup);
+
+  // Grading before conversation: the verdict is why you opened the case, and
+  // the failed assertion tells you which part of the transcript to read.
+  host.appendChild(el('div', 'sub', 'grading'));
+  const env = d.env_assertions || [];
+  const nl = d.nl_assertions || [];
+  if (!env.length && !nl.length) {
+    host.appendChild(el('div', 'dim', 'no assertions recorded for this case'));
+  }
+  for (const a of env) {
+    const node = assertionRow(a.met);
+    const txt = node.lastChild;
+    txt.appendChild(el('span', 'code',
+      (a.func_name || '?') + '(' + jsonish(a.arguments, 70) + ')'));
+    if (a.message) txt.appendChild(el('span', 'just', a.message));
+    host.appendChild(node);
+  }
+  for (const a of nl) {
+    const node = assertionRow(a.met);
+    const txt = node.lastChild;
+    txt.appendChild(document.createTextNode(a.assertion || ''));
+    if (a.justification) txt.appendChild(el('span', 'just', '↳ ' + a.justification));
+    host.appendChild(node);
+  }
+
+  host.appendChild(el('div', 'sub', 'conversation'));
+  const msgs = el('div', 'msgs');
+  for (const m of (d.messages || [])) msgs.appendChild(messageNode(m));
+  if (!(d.messages || []).length) {
+    msgs.appendChild(el('div', 'dim', 'no messages recorded'));
+  }
+  host.appendChild(msgs);
+}
+
+function assertionRow(met) {
+  const node = el('div', 'assert ' + (met ? 'met' : 'miss'));
+  node.appendChild(el('span', 'mark', met ? '✓' : '✗'));
+  node.appendChild(el('span', 'txt'));
+  return node;
+}
+
+const ROLE_LABEL = {assistant: 'agent', user: 'caller', tool: 'tool result'};
+
+function messageNode(m) {
+  const role = m.role || 'other';
+  const node = el('div', 'm ' + role + (m.error ? ' bad' : ''));
+  const label = (ROLE_LABEL[role] || role)
+    + (m.turn_idx === null || m.turn_idx === undefined ? '' : ' · turn ' + m.turn_idx)
+    + (m.error ? ' · error' : '');
+  node.appendChild(el('div', 'lbl', label));
+
+  const content = m.content;
+  if (role === 'tool') {
+    node.appendChild(clamped(typeof content === 'string' ? content : jsonish(content, 0),
+                             'res', 340));
+  } else if (content !== null && content !== undefined && String(content).trim() !== '') {
+    node.appendChild(clamped(typeof content === 'string' ? content : jsonish(content, 0),
+                             'bub', 900));
+  }
+  // A tool-calling turn usually has no prose at all; the call *is* the message.
+  for (const call of (m.tool_calls || [])) {
+    node.appendChild(el('div', 'call',
+      (call.name || '?') + '(' + jsonish(call.arguments, 70) + ')'));
+  }
+  return node;
+}
+
+// ---------------------------------------------------------------- live run
+function setRunInfo(info) {
+  const node = $('runinfo');
+  node.innerHTML = '';
+  if (!info) { node.textContent = ''; return; }
+  node.appendChild(document.createTextNode(
+    (info.run_name || '') + ' · ' + (info.split || '') + ' × ' + (info.trials || 1)));
+  if (info.resuming) {
+    const b = el('span', 'pill', 'resuming');
+    b.style.marginLeft = '8px';
+    node.appendChild(b);
+  }
+}
+
+const LOG_CAP = 500;
+function logLine(text, cls) {
+  const box = $('log');
+  $('idlehint').hidden = true;
+  // Stick to the bottom only while the reader is already there; scrolling up to
+  // read a traceback should not be yanked back by the next line.
+  const stick = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+  box.appendChild(el('div', 'l' + (cls ? ' ' + cls : ''), text));
+  while (box.children.length > LOG_CAP) box.removeChild(box.firstChild);
+  if (stick) box.scrollTop = box.scrollHeight;
+}
+
+// ---------------------------------------------------------------- events
+function handle(ev) {
+  // Transient events carry seq -2 and the sync marker -1, so they must be
+  // dispatched before the monotonic-seq filter that de-duplicates replays.
+  switch (ev.kind) {
+    case 'run_progress':
+      // One tqdm frame. It overwrites a single line instead of appending:
+      // a 77-case run redraws the bar hundreds of times, and every redraw is
+      // the same fact.
+      $('progress').textContent = ev.text || '';
+      return;
+    case 'run_log':
+      logLine(ev.text || '');
+      return;
+    case 'synced':
+      replaying = false;
+      if (ev.replayed) logLine('— replayed ' + ev.replayed + ' durable events —');
+      return;
+  }
+  if (typeof ev.seq === 'number' && ev.seq <= lastSeq) return;
+  if (typeof ev.seq === 'number') lastSeq = ev.seq;
+
+  switch (ev.kind) {
+    case 'run_started':
+      setRunInfo(ev);
+      $('progress').textContent = '';
+      $('state').textContent = 'running';
+      $('state').className = 'pill live';
+      $('run').disabled = true;
+      $('stop').disabled = false;
+      logLine('==> started ' + (ev.run_name || '') + ' on ' + (ev.split || '')
+              + ' × ' + (ev.trials || 1) + ' [' + (ev.agent_llm || '?') + ']'
+              + (ev.resuming ? ' (resuming)' : ''), 'milestone');
+      break;
+    case 'milestone':
+      logLine(ev.text || '', 'milestone');
+      break;
+    case 'recorded':
+      logLine('==> recorded ' + (ev.run_name || '') + ' · '
+              + pct((ev.summary || {}).pass_rate) + ' on ' + (ev.split || ''), 'milestone');
+      if (ev.files_changed_during_run && ev.files_changed_during_run.length) {
+        logLine('!! files changed during the run — this measurement is tainted: '
+                + ev.files_changed_during_run.join(', '), 'bad');
+      }
+      finish();
+      break;
+    case 'run_stopped':
+      logLine('==> stopped. ' + (ev.note || ''), 'milestone');
+      finish();
+      break;
+    case 'run_failed':
+      logLine('!! failed' + (ev.exit_code !== undefined && ev.exit_code !== null
+                             ? ' (exit ' + ev.exit_code + ')' : '')
+              + (ev.error ? ': ' + ev.error : ''), 'bad');
+      if (ev.detail) logLine(ev.detail, 'bad');
+      $('state').textContent = 'failed';
+      $('state').className = 'pill failed';
+      finish(true);
+      break;
+    default:
+      break;  // an unknown kind is a newer server, not an error
+  }
+}
+
+// Every terminal event re-reads the server rather than patching the page from
+// the event: the record on disk is the thing being charted, and the page should
+// show what a reload would show.
+function finish(keepState) {
+  $('progress').textContent = '';
+  refresh().then(() => {
+    if (keepState) {
+      $('state').textContent = 'failed';
+      $('state').className = 'pill failed';
+    }
+  });
+}
+
+const stream = new EventSource('/events');
+stream.onopen = () => { replaying = true; };
+stream.onmessage = (e) => handle(JSON.parse(e.data));
+
+// ---------------------------------------------------------------- controls
+$('run').onclick = async () => {
+  $('launcherr').hidden = true;
+  const res = await post('/run', {
+    split: $('split').value,
+    trials: Math.max(1, Math.min(5, +$('trials').value || 1)),
+    agent_llm: $('agent').value.trim(),
+    confirm_oos: $('confirm').checked,
+  });
+  if (!res.ok) {
+    $('launcherr').hidden = false;
+    $('launcherr').textContent = res.error || 'could not start the run';
+    return;
+  }
+  $('confirm').checked = false;  // one confirmation buys exactly one look
+  await refresh();
+};
+
+$('stop').onclick = async () => {
+  const res = await post('/stop', {});
+  if (!res.ok) {
+    $('launcherr').hidden = false;
+    $('launcherr').textContent = res.error || 'could not stop the run';
+  }
+};
+
+$('invclose').onclick = () => {
+  closeCase();
+  $('invpanel').hidden = true;
+  $('invtitle').textContent = '';
+  $('invbody').innerHTML = '';
+  INV = null;
+};
+
+refresh();
+</script>
