@@ -4,10 +4,12 @@ message: >-
   tau-bench / tau2-bench / tau-voice papers listed in the README.
 title: "℞-bench: A Benchmark for Medical AI Voice Agents"
 authors:
-  - name: "The ℞-bench authors"
+  - given-names: "Sohan"
+    family-names: "Shingade"
 type: software
 license: MIT
-repository-code: "https://github.com/PLACEHOLDER/rx-bench"
+repository-code: "https://github.com/sohan-shingade/rx-bench"
+url: "https://sohan-shingade.github.io/rx-bench/"
 abstract: >-
   A benchmark measuring whether voice agents launder uncertainty into the
   medical record: 111 tasks across 8 suites in a synthetic medical

@@ -218,7 +218,7 @@ work it builds on:
 ```bibtex
 @misc{rxbench2026,
   title={Rx-bench: A Benchmark for Medical AI Voice Agents},
-  author={{The Rx-bench authors}},
+  author={Sohan Shingade},
   year={2026},
   note={Working draft. Repository: https://github.com/sohan-shingade/rx-bench}
 }
