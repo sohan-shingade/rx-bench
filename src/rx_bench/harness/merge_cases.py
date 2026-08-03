@@ -423,6 +423,8 @@ def merge(
 
     if errors:
         raise CaseError("\n".join(errors))
+    if not entries:
+        raise CaseError(f"no valid case files found in {cases_dir}; refusing to overwrite tasks")
 
     # Sort by id so the merged file is stable regardless of file iteration order.
     entries.sort(key=lambda e: e[0].id)

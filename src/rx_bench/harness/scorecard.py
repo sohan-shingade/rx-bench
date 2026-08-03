@@ -114,8 +114,20 @@ def _identify_policy(results: Any) -> dict[str, Any]:
     return info
 
 
+def _task_set_sha256(results: Any) -> str:
+    """Hash the declared task set independent of task and object key order."""
+    tasks = []
+    for task in getattr(results, "tasks", None) or []:
+        raw = task.model_dump(mode="json") if hasattr(task, "model_dump") else task
+        tasks.append(raw)
+    tasks.sort(key=lambda task: str(task.get("id", "")))
+    canonical = json.dumps(tasks, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
 def _per_case(results: Any) -> dict[str, dict[str, Any]]:
     tasks = getattr(results, "tasks", None) or []
+    expected_trials = max(1, int(getattr(getattr(results, "info", None), "num_trials", 1)))
     tickets = {
         getattr(t, "id", None): getattr(t, "ticket", None)
         for t in tasks
@@ -126,6 +138,8 @@ def _per_case(results: Any) -> dict[str, dict[str, Any]]:
             "task_id": tid,
             "suite": suite_of(tid),
             "ticket": tickets.get(tid),
+            "expected_trials": expected_trials,
+            "trials_present": 0,
             "trials": 0,
             "successes": 0,
             "infra_errors": 0,
@@ -147,6 +161,7 @@ def _per_case(results: Any) -> dict[str, dict[str, Any]]:
         # Defensive support for malformed/legacy results that contain a
         # simulation whose task metadata was not serialised.
         entry = out.setdefault(tid, _empty_entry(tid))
+        entry["trials_present"] += 1
         reason = getattr(sim, "termination_reason", "")
         reason = str(getattr(reason, "value", reason) or "")
         entry["termination_reasons"].append(reason)
@@ -160,7 +175,10 @@ def _per_case(results: Any) -> dict[str, dict[str, Any]]:
         entry["rewards"].append(reward)
         entry["successes"] += 1 if is_successful(reward) else 0
     for entry in out.values():
-        entry["pass"] = entry["trials"] > 0 and entry["successes"] == entry["trials"]
+        entry["missing_trials"] = max(0, expected_trials - entry["trials_present"])
+        entry["complete"] = entry["missing_trials"] == 0
+        entry["pass_fraction"] = safe_rate(entry["successes"], entry["trials"])
+        entry["pass"] = entry["complete"] and entry["successes"] == expected_trials
         entry["scored"] = entry["trials"] > 0
         rewards = [r for r in entry["rewards"] if isinstance(r, (int, float))]
         entry["mean_reward"] = sum(rewards) / len(rewards) if rewards else None
@@ -177,6 +195,7 @@ def _per_suite(per_case: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]
                 "cases": 0,
                 "passed": 0,
                 "not_scored": 0,
+                "pass_fractions": [],
                 "rewards": [],
             },
         )
@@ -185,10 +204,12 @@ def _per_suite(per_case: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]
             continue
         bucket["cases"] += 1
         bucket["passed"] += 1 if entry["pass"] else 0
+        bucket["pass_fractions"].append(entry["pass_fraction"])
         if entry["mean_reward"] is not None:
             bucket["rewards"].append(entry["mean_reward"])
     for bucket in suites.values():
-        bucket["pass_rate"] = safe_rate(bucket["passed"], bucket["cases"])
+        fractions = bucket.pop("pass_fractions")
+        bucket["pass_rate"] = sum(fractions) / len(fractions) if fractions else None
         rewards = bucket.pop("rewards")
         bucket["mean_reward"] = sum(rewards) / len(rewards) if rewards else None
     return suites
@@ -234,18 +255,26 @@ def build_scorecard(results_path: Path) -> dict[str, Any]:
 
     scored = [c for c in per_case.values() if c.get("scored", True)]
     unscored = [c for c in per_case.values() if not c.get("scored", True)]
+    incomplete = [c for c in per_case.values() if not c.get("complete", True)]
     passed = sum(1 for c in scored if c["pass"])
+    pass_fractions = [c["pass_fraction"] for c in scored]
     totals = {
         "cases": len(scored),
         "passed": passed,
         "failed": len(scored) - passed,
-        "pass_rate": safe_rate(passed, len(scored)),
+        # pass^1: mean per-task success fraction. Requiring all n trials is pass^n.
+        "pass_rate": sum(pass_fractions) / len(pass_fractions) if pass_fractions else None,
         "simulations": len(getattr(results, "simulations", None) or []),
         # Cases whose every simulation crashed. Excluded from pass_rate so a
         # flaky proxy cannot masquerade as a regression, but reported loudly so
         # nobody quotes a pass rate computed over half the suite.
         "cases_not_scored": len(unscored),
         "not_scored_case_ids": sorted(c["task_id"] for c in unscored),
+        "cases_incomplete": len(incomplete),
+        "incomplete_case_ids": sorted(c["task_id"] for c in incomplete),
+        "missing_trials": {
+            c["task_id"]: c["missing_trials"] for c in sorted(incomplete, key=lambda c: c["task_id"])
+        },
     }
 
     run_info: dict[str, Any] = {"results_path": str(results_path)}
@@ -263,6 +292,7 @@ def build_scorecard(results_path: Path) -> dict[str, Any]:
     except Exception:
         pass
     run_info.update(_identify_policy(results))
+    run_info["task_set_sha256"] = _task_set_sha256(results)
 
     scorecard: dict[str, Any] = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -398,6 +428,16 @@ def render(scorecard: dict[str, Any], diff: Optional[dict[str, Any]] = None) -> 
         f"  OVERALL     {totals.get('passed')}/{totals.get('cases')} cases pass "
         f"({_fmt(totals.get('pass_rate'))})  across {totals.get('simulations')} simulation(s)"
     )
+    incomplete = totals.get("cases_incomplete") or 0
+    if incomplete:
+        ids = totals.get("incomplete_case_ids") or []
+        add("")
+        add(
+            f"  !! {incomplete} task(s) have fewer trials than requested: "
+            f"{', '.join(ids[:12])}{' ...' if len(ids) > 12 else ''}"
+        )
+        add("  !! This run is incomplete and must not be published without --allow-partial.")
+
     not_scored = totals.get("cases_not_scored") or 0
     if not_scored:
         ids = totals.get("not_scored_case_ids") or []
@@ -614,6 +654,10 @@ def main(argv: Optional[list[str]] = None) -> int:
                          "(default: alongside the results file)")
     ap.add_argument("--quiet", action="store_true", help="write JSON, print nothing")
     ap.add_argument(
+        "--allow-partial", action="store_true",
+        help="allow missing tasks or trials (recorded explicitly in JSON)",
+    )
+    ap.add_argument(
         "--fail-on-regression",
         action="store_true",
         help="exit non-zero if any case newly fails vs the baseline",
@@ -650,6 +694,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         print(render(scorecard, diff))
         print(f"scorecard written to {out_path}")
 
+    if not args.allow_partial and scorecard["totals"].get("cases_incomplete"):
+        return 1
     if args.fail_on_regression and diff and diff["newly_failing"]:
         return 1
     return 0

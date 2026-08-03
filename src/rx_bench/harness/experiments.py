@@ -194,6 +194,17 @@ def record_run(
 ) -> Path:
     """Append one finished benchmark run to the registry. Returns its path."""
     now = now or datetime.now(timezone.utc)
+    version = dict(version)
+    version["files"] = dict(version.get("files") or {})
+    active_policy_sha = (scorecard.get("run") or {}).get("policy_sha256")
+    if active_policy_sha:
+        version["files"]["policy.md"] = active_policy_sha[:VERSION_ID_LEN]
+        version["policy_sha256"] = active_policy_sha
+        combined = hashlib.sha256()
+        combined.update(f"model={version.get('model')}\n".encode())
+        for name in sorted(version["files"]):
+            combined.update(f"{name}={version['files'][name]}\n".encode())
+        version["id"] = combined.hexdigest()[:VERSION_ID_LEN]
     record = {
         "recorded_at": now.isoformat(timespec="seconds"),
         "version": version,

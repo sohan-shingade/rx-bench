@@ -137,6 +137,17 @@ def _check_referents(a: EnvAssertion, db: MedicalReceptionDB) -> list[str]:
     return problems
 
 
+def _nl_holds_for_silence(assertion: str) -> bool:
+    """Conservative NL evaluation for an empty assistant transcript."""
+    text = " ".join((assertion or "").lower().split())
+    return (
+        text.startswith("the agent did not ")
+        or text.startswith("the agent never ")
+        or text.startswith("the agent neither ")
+        or text.startswith("the agent made no ")
+    )
+
+
 def check_case(task: Task, source_file: str) -> CaseReport:
     rep = CaseReport(case_id=task.id, source_file=source_file)
     crit = task.evaluation_criteria
@@ -185,14 +196,16 @@ def check_case(task: Task, source_file: str) -> CaseReport:
     if rep.problems:
         return rep
 
-    rep.null_agent_passes = bool(env_assertions) and not rep.requires_agent_action
+    env_passes = all(_describe(a) in rep.holds_at_start for a in env_assertions)
+    nl_passes = all(_nl_holds_for_silence(a) for a in nl_assertions)
+    rep.null_agent_passes = env_passes and nl_passes
 
-    if rep.null_agent_passes and not nl_assertions:
+    if rep.null_agent_passes:
         rep.problems.append(
-            "VACUOUS: every env_assertion already holds before the agent acts, and "
-            "there are no nl_assertions. An agent that does nothing scores 1.0."
+            "VACUOUS: unchanged environment assertions and NL assertions are all "
+            "satisfied by an agent that says and does nothing."
         )
-    elif rep.null_agent_passes:
+    elif env_passes:
         non_guard = [
             a.func_name for a in env_assertions if a.func_name not in GUARD_ASSERTIONS
         ]

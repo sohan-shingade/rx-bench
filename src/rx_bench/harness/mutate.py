@@ -45,6 +45,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
+import hashlib
 
 
 from rx_bench.harness.common import (  # noqa: E402
@@ -401,6 +402,22 @@ def dry_run(quiet: bool = False) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
+PINNED_NL_JUDGE = "claude-gpt-5-6-luna"
+
+
+def _case_trial_map(results_path: Path) -> dict[str, list[bool]]:
+    """Usable trial outcomes by task."""
+    from rx_bench.harness.scorers import load_results
+
+    results = load_results(results_path)
+    by_task: dict[str, list[bool]] = {}
+    for sim in getattr(results, "simulations", None) or []:
+        tid = getattr(sim, "task_id", None)
+        if tid and _sim_actually_ran(sim):
+            by_task.setdefault(tid, []).append(is_successful(sim_reward(sim)))
+    return by_task
+
+
 def _case_pass_map(results_path: Path) -> dict[str, bool]:
     """{task_id: passed}, excluding simulations that never actually ran.
 
@@ -410,17 +427,7 @@ def _case_pass_map(results_path: Path) -> dict[str, bool]:
     easiest way to publish a false kill: a flaky proxy would "prove" every
     mutant works. Excluded cases are surfaced separately as ``not_run``.
     """
-    from rx_bench.harness.scorers import load_results
-
-    results = load_results(results_path)
-    by_task: dict[str, list[bool]] = {}
-    for sim in getattr(results, "simulations", None) or []:
-        tid = getattr(sim, "task_id", None)
-        if not tid:
-            continue
-        if not _sim_actually_ran(sim):
-            continue
-        by_task.setdefault(tid, []).append(is_successful(sim_reward(sim)))
+    by_task = _case_trial_map(results_path)
     return {tid: all(vals) for tid, vals in by_task.items() if vals}
 
 
@@ -694,7 +701,7 @@ def run_mutant(
     # whole run as infrastructure_error -- 14 of 14 lost, which reads as
     # provider flakiness and costs a full mutant run to diagnose. scripts/run.sh
     # sets the same variable; a mutant run launched from here must not be weaker.
-    env.setdefault("TAU2_LLM_NL_ASSERTIONS", agent_llm)
+    env.setdefault("TAU2_LLM_NL_ASSERTIONS", PINNED_NL_JUDGE)
     print(f"\n==> MEDICAL_POLICY_MUTANT={name} {' '.join(cmd)}")
     if dry:
         return None
@@ -809,6 +816,30 @@ def scope_from_runs(mutant_results: dict[str, Path]) -> dict[str, list[str]]:
     return scope
 
 
+def _recorded_policy_sha256(results_path: Path) -> Optional[str]:
+    data = json.loads(Path(results_path).read_text())
+    recorded = ((data.get("run") or {}).get("policy_sha256")
+                or (data.get("metadata") or {}).get("policy_sha256"))
+    if recorded:
+        return recorded
+    policy = ((data.get("info") or {}).get("environment_info") or {}).get("policy")
+    return hashlib.sha256(policy.encode()).hexdigest() if policy is not None else None
+
+
+def _verify_mutant_policy(name: str, results_path: Path) -> str:
+    expected_path = MUTANTS_DIR / f"{name}.md"
+    if not expected_path.exists():
+        raise ValueError(f"expected mutant policy does not exist: {expected_path}")
+    expected = hashlib.sha256(expected_path.read_bytes()).hexdigest()
+    recorded = _recorded_policy_sha256(results_path)
+    if recorded != expected:
+        raise ValueError(
+            f"policy hash mismatch for {name}: recorded={recorded or 'missing'} "
+            f"expected={expected}"
+        )
+    return recorded
+
+
 def compare(
     baseline_results: Path,
     mutant_results: dict[str, Path],
@@ -831,12 +862,21 @@ def compare(
     }
     for name, path in mutant_results.items():
         try:
-            mut = _case_pass_map(Path(path))
+            policy_sha256 = _verify_mutant_policy(name, Path(path))
+            mut_trials = _case_trial_map(Path(path))
+            mut = {tid: all(vals) for tid, vals in mut_trials.items() if vals}
         except Exception as exc:
             report["mutants"][name] = {"error": f"{type(exc).__name__}: {exc}"}
             continue
         intended = set(scope[name]) if scope and name in scope else set(base)
-        killed = sorted(t for t, ok in base.items() if ok and mut.get(t) is False)
+        killed_candidates = sorted(t for t, ok in base.items() if ok and mut.get(t) is False)
+        trial_counts = {tid: len(mut_trials.get(tid, [])) for tid in sorted(intended)}
+        failure_counts = {
+            tid: sum(not outcome for outcome in mut_trials.get(tid, []))
+            for tid in sorted(intended)
+        }
+        unconfirmed = sorted(t for t in killed_candidates if failure_counts.get(t, 0) == 1)
+        killed = sorted(set(killed_candidates) - set(unconfirmed))
         resurrected = sorted(t for t, ok in base.items() if not ok and mut.get(t) is True)
         not_run = sorted(t for t in base if t in intended and t not in mut)
         out_of_scope = sorted(t for t in base if t not in intended)
@@ -848,14 +888,18 @@ def compare(
         inconclusive = not comparable
         report["mutants"][name] = {
             "results": str(path),
+            "policy_sha256": policy_sha256,
+            "trial_counts": trial_counts,
+            "failure_counts": failure_counts,
             "killed": killed,
             "killed_count": len(killed),
+            "unconfirmed_kills": unconfirmed,
             "resurrected": resurrected,
             "not_run_under_mutant": not_run,
             "out_of_scope": out_of_scope,
             "comparable_cases": comparable,
             "inconclusive": inconclusive,
-            "surviving": (not inconclusive) and len(killed) == 0,
+            "surviving": (not inconclusive) and not killed and not unconfirmed,
             "rule": MUTANTS[name].rule if name in MUTANTS else "",
             "expected_to_kill": MUTANTS[name].kills if name in MUTANTS else "",
         }
@@ -899,6 +943,10 @@ def render_compare(report: dict[str, Any]) -> str:
             lines.append(f"    weakened: {entry['rule']}")
             for tid in entry["killed"]:
                 lines.append(f"      KILLED  {tid}")
+        for tid in entry.get("unconfirmed_kills") or []:
+            lines.append(
+                f"      UNCONFIRMED  {tid} failed in its only trial; rerun before claiming a kill"
+            )
         if entry.get("resurrected"):
             lines.append(
                 f"    note: {len(entry['resurrected'])} case(s) started passing under "

@@ -8,7 +8,7 @@
 #
 # Env overrides:
 #   AGENT_LLM / USER_LLM     LiteLLM model ids (default gpt-4.1-2025-04-14)
-#   TAU2_LLM_NL_ASSERTIONS   NL-assertion judge (defaults to AGENT_LLM here)
+#   TAU2_LLM_NL_ASSERTIONS   NL-assertion judge (default claude-gpt-5-6-luna)
 #   CONCURRENCY              parallel simulations (default 2)
 #   MAX_STEPS                turn cap per call (default 40; tau2 ships 200)
 #   MAX_STEP_SECONDS         per-simulation wall clock cap (default 300)
@@ -25,11 +25,8 @@ TRIALS="${2:-1}"
 AGENT_LLM="${AGENT_LLM:-gpt-4.1-2025-04-14}"
 USER_LLM="${USER_LLM:-gpt-4.1-2025-04-14}"
 
-# The nl_assertion judge is not a CLI flag. Left alone it defaults to an OpenAI
-# model, so a run through another provider completes the whole simulation and
-# then dies at grading time — after the tokens are spent. Point it at the same
-# model as the agent unless told otherwise.
-export TAU2_LLM_NL_ASSERTIONS="${TAU2_LLM_NL_ASSERTIONS:-$AGENT_LLM}"
+# Keep the judge independent of the agent seat. The pilot matrix pins this model.
+export TAU2_LLM_NL_ASSERTIONS="${TAU2_LLM_NL_ASSERTIONS:-claude-gpt-5-6-luna}"
 
 # Raise only if you have confirmed your provider/gateway holds up under
 # parallel load; failed simulations are recorded as infrastructure_error and
@@ -55,17 +52,19 @@ echo "==> checking for vacuous / unsatisfiable cases"
 echo
 echo "==> running split '$SPLIT' x$TRIALS trials"
 [ -n "${MEDICAL_POLICY_MUTANT:-}" ] && echo "    (MUTANT POLICY: $MEDICAL_POLICY_MUTANT)"
-"${RXBENCH[@]}" run \
-  --domain medical_reception \
-  --task-split-name "$SPLIT" \
-  --agent-llm "$AGENT_LLM" \
-  --user-llm "$USER_LLM" \
-  --num-trials "$TRIALS" \
-  --max-steps "$MAX_STEPS" \
-  --max-steps-seconds "$MAX_STEP_SECONDS" \
-  --max-concurrency "$CONCURRENCY" \
-  --auto-resume \
-  ${SAVE_TO:+--save-to "$SAVE_TO"}
+RUN_ARGS=(
+  --domain medical_reception
+  --task-split-name "$SPLIT"
+  --agent-llm "$AGENT_LLM"
+  --user-llm "$USER_LLM"
+  --num-trials "$TRIALS"
+  --max-steps "$MAX_STEPS"
+  --max-steps-seconds "$MAX_STEP_SECONDS"
+  --max-concurrency "$CONCURRENCY"
+  --auto-resume
+)
+[ -n "$SAVE_TO" ] && RUN_ARGS+=(--save-to "$SAVE_TO")
+"${RXBENCH[@]}" run "${RUN_ARGS[@]}"
 
 # tau2 saves each run as data/simulations/<run_name>/results.json.
 LATEST="$(ls -td "$ROOT"/data/simulations/*/ 2>/dev/null | head -1 || true)"
