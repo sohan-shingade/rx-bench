@@ -622,8 +622,13 @@ def test_evaluate_records_asr_failures_without_aborting():
 
     res = A.evaluate(man, flaky)
     assert len(res["errors"]) == 1
-    assert len(res["rows"]) == 1
-    assert res["rows"][0]["outcome"] == "correct"
+    # The failed turn stays in the rows as an empty hypothesis (all deletions)
+    # so ASR outages cannot shrink the WER denominator.
+    assert len(res["rows"]) == 2
+    failed = next(r for r in res["rows"] if r["asr_failed"])
+    ok = next(r for r in res["rows"] if not r["asr_failed"])
+    assert failed["id"] == "x-clean" and failed["wer"] == 1.0
+    assert ok["outcome"] == "correct"
 
 
 def test_deepgram_transcriber_requires_key(monkeypatch):
