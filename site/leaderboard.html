@@ -29,7 +29,7 @@
     <div class="container">
       <h1>Leaderboard</h1>
       <p>
-        pass^k reliability per agent, FHIR-verified. Higher k means a stricter
+        pass^k reliability per agent under the disclosed evaluation mode. Higher k means a stricter
         bar: the agent must succeed on all k of k i.i.d. trials of a task.
         Filter by agent class to compare like with like.
       </p>
@@ -67,10 +67,38 @@
       </table>
     </div>
     <p class="table-footnote">
-      &dagger; Preliminary: smoke-split run with a reduced task set and trial
-      count; not comparable to full-split results. &mdash; means k exceeds the
-      number of trials for that run.
+      &dagger; Preliminary historical pilot; compare rows only when split and
+      evaluation mode match. A rank of &mdash; marks an incomplete,
+      evaluation-mismatched, or unreproducible row; missing pass^k means k
+      exceeds the trial count.
     </p>
+
+    <p class="table-footnote">
+      <strong>Row disclosures:</strong> The telephony row is environment-only;
+      its 0.375 is not directly comparable with the 0.641 environment+NL text
+      reference, and the earlier WER claim is unverified. Lacuna is an external
+      31/32-case result not reproducible in this repository (the included bridge
+      covers 24 cases); its FHIR cross-check is 29/30 supported cases. See the
+      separate unverified Gemini smoke result below.
+    </p>
+
+    <div class="submit-note">
+      <strong>Historical pilot results:</strong> These numbers were produced with
+      the pre-audit harness. An August 2026 audit found and fixed scorer and
+      evaluation-parity defects; rows will be re-run before being treated as
+      comparable. Trial counts are n ≤ 2, so the table does not establish
+      statistical separation. Luna's Class A row is self-graded because that
+      model also served as user simulator and NL judge; its telephony score is
+      environment-only, with Luna in both agent and user-simulator seats.
+    </div>
+
+    <h2>Smoke / not ranked</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Agent Class</th><th>Model</th><th>Split</th><th>Reported Pass^1</th><th>Status</th></tr></thead>
+        <tbody id="smoke-body"><tr><td colspan="5" class="empty-state">Loading smoke results&hellip;</td></tr></tbody>
+      </table>
+    </div>
 
     <div class="submit-note">
       <strong>Submit a result:</strong> open a GitHub pull request adding a row

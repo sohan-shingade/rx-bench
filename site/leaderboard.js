@@ -41,13 +41,14 @@
         const badge = r.preliminary
           ? ' <span class="badge">preliminary · ' + esc(r.split) + " split</span>†"
           : "";
+        const rankBadge = r.rankable === false ? ' <span class="badge">not ranked</span>' : "";
         const trials =
           esc(r.trials) + (r.split && r.split !== "full" ? " (" + esc(r.split) + ")" : "");
         return (
           "<tr>" +
           '<td class="num">' + r.rank + "</td>" +
           "<td>" + esc(CLASS_LABELS[r.class] || r.class) + "</td>" +
-          "<td>" + esc(r.model || r.agent) + badge + "</td>" +
+          "<td>" + esc(r.model || r.agent) + badge + rankBadge + "</td>" +
           "<td>" + esc(r.user_sim) + "</td>" +
           "<td>" + esc(r.judge) + "</td>" +
           '<td class="num">' + trials + "</td>" +
@@ -69,6 +70,18 @@
     });
   }
 
+  function renderSmoke(rows) {
+    const tbody = document.getElementById("smoke-body");
+    if (!tbody) return;
+    tbody.innerHTML = (rows || []).map((r) =>
+      "<tr><td>" + esc(CLASS_LABELS[r.class] || r.class) +
+      "</td><td>" + esc(r.model || r.agent) +
+      "</td><td>" + esc(r.split) +
+      '</td><td class="num">' + fmtPass(r, 1) +
+      "</td><td>" + esc(r.notes) + "</td></tr>"
+    ).join("") || '<tr><td colspan="5" class="empty-state">No smoke results.</td></tr>';
+  }
+
   function showError() {
     document.getElementById("leaderboard-body").innerHTML =
       '<tr><td colspan="11" class="empty-state">Could not load ' +
@@ -86,10 +99,13 @@
         return res.json();
       })
       .then((data) => {
-        // Global rank by pass^1 (desc), tie-broken by pass^2 then pass^3.
+        // Rank eligible rows by pass^1 (desc); retain ineligible pilots unranked.
         rankedRows = (data.rows || [])
           .slice()
           .sort((a, b) => {
+            if ((a.rankable === false) !== (b.rankable === false)) {
+              return a.rankable === false ? 1 : -1;
+            }
             for (const k of PASS_KS) {
               const av = (a.pass_hat && a.pass_hat[String(k)]) || 0;
               const bv = (b.pass_hat && b.pass_hat[String(k)]) || 0;
@@ -97,8 +113,14 @@
             }
             return 0;
           })
-          .map((row, i) => ({ ...row, rank: i + 1 }));
+          .map((row, i, rows) => ({
+            ...row,
+            rank: row.rankable === false
+              ? "—"
+              : rows.slice(0, i).filter((r) => r.rankable !== false).length + 1
+          }));
         render("all");
+        renderSmoke(data.smoke_rows);
       })
       .catch(showError);
   });

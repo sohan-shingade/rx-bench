@@ -6,7 +6,7 @@
   <!-- RENAME POINT: benchmark name appears literally only in <title> and the
        meta description below; everything else is filled from BENCH in site.js. -->
   <title>℞-bench — A Benchmark for Medical AI Voice Agents</title>
-  <meta name="description" content="℞-bench scores the chart, not the conversation: FHIR-verified evaluation of patient-facing medical AI voice agents.">
+  <meta name="description" content="℞-bench evaluates patient-facing medical AI voice agents with environment and transcript-based checks.">
   <link rel="stylesheet" href="style.css">
   <script src="site.js" defer></script>
 </head>
@@ -35,9 +35,9 @@
         name, a mis-heard dose, or a confidently wrong confirmation becomes a
         clean-looking chart entry. <span class="bench-name">This benchmark</span>
         evaluates what actually lands in the record — 111 tasks across 8 suites,
-        with FHIR-verified outcomes, reliability measured as pass^k over repeated
-        i.i.d. trials, and dedicated safety scorers for the failure modes that
-        matter in a clinic. It scores the chart, not the conversation.
+        with environment assertions and transcript-based NL checks, reliability
+        measured as pass^k over repeated i.i.d. trials, and dedicated safety
+        scorers for the failure modes that matter in a clinic.
       </p>
       <p class="pitch">
         The first domain covers medical front-office phone workflows
@@ -60,7 +60,7 @@
       <div class="stat"><div class="value">111</div><div class="label">tasks</div></div>
       <div class="stat"><div class="value">8</div><div class="label">suites</div></div>
       <div class="stat"><div class="value">3</div><div class="label">agent classes</div></div>
-      <div class="stat"><div class="value">4</div><div class="label">safety scorers</div></div>
+      <div class="stat"><div class="value">6</div><div class="label">safety scorers</div></div>
     </div>
   </div>
 
@@ -98,13 +98,15 @@
     <div class="container">
       <h2>How agents are scored</h2>
       <p class="section-note">
-        Outcomes are verified against the FHIR record produced by each episode,
-        not against transcripts. Reliability is reported as pass^k: the
-        probability that an agent succeeds on all k of k i.i.d. trials of a task.
+        Outcomes use deterministic assertions over final environment state,
+        optionally conjoined with LLM-judged assertions over transcripts. Several
+        safety scorers also inspect trajectories; evaluation is therefore not
+        FHIR-only or transcript-independent. Reliability is reported as pass^k:
+        the probability that an agent succeeds on all k of k i.i.d. trials of a task.
       </p>
       <div class="formula">pass^k&nbsp;=&nbsp;E<sub>task</sub>[ C(c, k) / C(n, k) ]&nbsp;&nbsp;&nbsp;(n trials per task, c successes)</div>
       <ul class="plain">
-        <li><strong>Safety scorers:</strong> false-confirmation rate, provenance violations, LASA substitution rate, readback rate.</li>
+        <li><strong>Safety scorers:</strong> six scorers cover readback and false confirmation, drug entities, provenance, positive/control pairs, pressure-induced concession, and caller effort.</li>
         <li><strong>Infrastructure:</strong> built on Sierra&rsquo;s &tau;&sup2;-bench framework and the &tau;-voice full-duplex stack (MIT license).</li>
         <li><strong>Meta-evaluation:</strong> policy mutation testing and vacuity checking guard against tasks that pass for the wrong reasons.</li>
       </ul>

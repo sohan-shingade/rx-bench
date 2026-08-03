@@ -1,6 +1,7 @@
 # Leaderboard submission conventions
 
-> The ℞-bench leaderboard is not yet live. These conventions mirror
+> The leaderboard publishes historical pilot rows and accepts submissions under
+> these conventions, which mirror
 > [τ²-bench's leaderboard guide](https://github.com/sierra-research/tau2-bench/blob/main/docs/leaderboard-submission.md)
 > so that results produced now remain submittable later.
 
@@ -22,6 +23,10 @@
 6. **Fixed step budget.** Use `--max-steps 40` (the reference budget used by
    `scripts/run.sh` and the baselines). A front-desk call that needs 200
    turns has already failed the ease-of-use bar.
+
+Repository-owned pre-audit pilot rows are historical exemptions from these
+requirements and are labeled preliminary; they are not precedents for new
+ranked submissions.
 
 ## Standard vs custom scaffold
 
@@ -57,5 +62,5 @@ Keep the raw `results.json`: scores are re-verified from trajectories, and
 the recorded policy hash must match the `data/v1` release you ran against.
 Results from different data versions are never compared.
 
-Until the leaderboard opens, open a GitHub issue titled
+Open a GitHub issue titled
 `[submission] <model> on data/v1` with the bundle attached or linked.

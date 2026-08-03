@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![python](https://img.shields.io/badge/Python-3.12%2B-blue.svg?style=flat&logo=python&logoColor=white)](https://www.python.org)
 [![Whitepaper](https://img.shields.io/badge/📄_Whitepaper-draft_v0.2-B31B1B.svg)](docs/whitepaper.md)
-[![Leaderboard](https://img.shields.io/badge/🏆_Leaderboard-live-brightgreen.svg)](https://sohan-shingade.github.io/rx-bench/)
+[![Leaderboard](https://img.shields.io/badge/Leaderboard-pilot-orange.svg)](https://sohan-shingade.github.io/rx-bench/)
 
 > The name "℞-bench" (ASCII: `rx-bench`) is a provisional working name.
 
@@ -38,28 +38,32 @@ mutation testing, diversity reporting) that keeps the suite honest.
 
 ## Initial results (pilot, 2026-08-01)
 
-Full rows and disclosures on the [leaderboard](https://sohan-shingade.github.io/rx-bench/); scorecards in `results/`. All pilot-scale (n ≤ 2); judge and user simulator are `claude-gpt-5-6-luna` throughout (see whitepaper limitations).
+Full rows and disclosures on the [leaderboard](https://sohan-shingade.github.io/rx-bench/); scorecards in `results/`. These are pilot-scale historical results (n ≤ 2), with no confidence intervals or statistical separation established. The August 2026 audit found and fixed scorer and evaluation-parity defects in the pre-audit harness that produced them; all rows will be re-run before being treated as comparable.
+
+`claude-gpt-5-6-luna` served as the NL judge and user simulator throughout and is also a ranked agent below. Its Class A row is therefore self-graded; all other rows share a judge/simulator from the same model family, except the environment-only telephony score.
 
 | Agent | Class | Split | Pass^1 |
 |---|---|---|---|
 | claude-gpt-5-6-sol | A (text) | full (111) | 0.658 |
-| claude-gpt-5-6-luna | A (text) | full (111) | 0.564 (pass^2 0.491) |
+| claude-gpt-5-6-luna | A (text; self-graded) | 110/111 (F-func-025 unscored) | 0.564 (pass^2 0.491) |
 | claude-haiku-4-5 | A (text) | full (111) | 0.414 |
-| Lacuna ED-intake pipeline (custom) | C (voice pipeline) | S1 LASA (32) | 0.581 |
-| claude-gpt-5-6-luna over telephony | C (voice pipeline) | S1 LASA (32) | 0.375 |
-| gemini-3.1-flash-live | B (audio-native) | smoke (2) | 0.5 |
+| Lacuna ED-intake pipeline (custom) | C (voice pipeline; external) | S1 LASA (31/32 scored) | 0.581 |
+| claude-gpt-5-6-luna over telephony | C (voice pipeline; env-only, same model in agent/user seats) | S1 LASA (32) | 0.375 |
 
-Two headline findings so far:
+**Smoke / not ranked.** `gemini-3.1-flash-live` scored 0.5 on a two-case Class B smoke run. No backing scorecard is present in `results/`, so this is retained only as an unverified execution smoke result, not a benchmark comparison.
 
-- **The voice tax is availability, not integrity (yet).** The same agent on the
-  same 32 sound-alike-drug tasks drops 0.641 → 0.375 under degraded telephony
-  (41% relative, mean turn WER 0.51) — but with **zero wrong-drug charting**:
-  failures are lost calls, not laundered mishearings.
-- **Reviewer layers guard the chart, not the conversation.** The Lacuna
-  custom scaffold writes the correct medication in 29/30 FHIR-graded cases
-  (zero wrong-drug writes), yet trails the raw model on full grading because
-  it skips front-line safety behaviors the NL judge requires (e.g., asking for
-  independent disambiguating evidence before recording).
+Two preliminary observations so far:
+
+- **The telephony run needs an evaluation-parity re-run.** Its 0.375 score on
+  32 sound-alike-drug tasks used environment-only grading, while the reported
+  0.641 text reference included environment + NL assertions; they are not
+  directly comparable, and the previously reported WER has no backing artifact
+  in `results/`. The telephony scorecard does support zero wrong-drug charting:
+  20 failures were missed records rather than substitutions.
+- **Reviewer layers may guard the chart more than the conversation.** The external
+  Lacuna scorecard reports 18/31 (0.581) on native environment + NL grading and
+  29/30 supported cases under a post-hoc FHIR cross-grader. The 31/32-case run cannot be reproduced from this repository: its
+  runnable bridge covers only 24 transcript-injection cases.
 
 ## Domains
 
@@ -153,7 +157,8 @@ Class B needs the `[voice]` extra plus OpenAI/ElevenLabs/Deepgram keys (see
 class C needs macOS `say` and a `DEEPGRAM_API_KEY` (see
 [src/rx_bench/voice_pipeline/README.md](src/rx_bench/voice_pipeline/README.md)).
 All three emit a standard tau2 `results.json` that `rxbench score` reads
-unchanged, so scores are directly comparable across classes.
+unchanged. Scores are comparable across classes only when task sets, trial
+counts, and evaluation modes are matched.
 
 ## Metrics
 
