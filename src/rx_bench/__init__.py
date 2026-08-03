@@ -22,9 +22,16 @@ It also points ``TAU2_DATA_DIR`` at this repository's ``data/`` directory
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import sys
 from pathlib import Path
+
+from dotenv import load_dotenv
+
+# tau2 normally loads this during its eager package import. Load it first so the
+# config patch below can see the same values before any tau2 consumer binds them.
+load_dotenv()
 
 # ---------------------------------------------------------------------------
 # Naming. The project name is provisional; keep it in this one place.
@@ -48,75 +55,66 @@ if "TAU2_DATA_DIR" not in os.environ and _DATA_ROOT.is_dir():
     os.environ["TAU2_DATA_DIR"] = str(_DATA_ROOT)
 
 
+def _load_tau2_config():
+    """Load ``tau2.config`` without executing tau2's eager package import."""
+    if "tau2.config" in sys.modules:
+        return sys.modules["tau2.config"]
+
+    tau2_spec = importlib.util.find_spec("tau2")
+    if tau2_spec is None or not tau2_spec.submodule_search_locations:
+        raise ImportError("Could not find tau2")
+    config_path = Path(next(iter(tau2_spec.submodule_search_locations))) / "config.py"
+    config_spec = importlib.util.spec_from_file_location("tau2.config", config_path)
+    if config_spec is None or config_spec.loader is None:
+        raise ImportError("Could not load tau2.config")
+    config = importlib.util.module_from_spec(config_spec)
+    sys.modules["tau2.config"] = config
+    config_spec.loader.exec_module(config)
+    return config
+
+
 def _patch_tau2_config() -> None:
     """Make tau2's hardcoded defaults overridable from the environment.
 
-    Two classes of knob, both invisible to the tau2 CLI:
-
-    * ``TAU2_LLM_NL_ASSERTIONS`` / ``TAU2_LLM_ENV_INTERFACE`` — the
-      NL-assertion judge and env-interface models. Left alone they default to
-      an OpenAI model, so a run driven entirely through another provider
-      completes every simulation and only then dies at grading time on a
-      missing OPENAI_API_KEY — after the tokens are spent.
-    * ``TAU2_MAX_RETRIES`` / ``TAU2_RETRY_ATTEMPTS`` / ``TAU2_RETRY_MIN_WAIT``
-      / ``TAU2_RETRY_MAX_WAIT`` / ``TAU2_RETRY_MULTIPLIER`` — retry behaviour.
-      Note the first two MULTIPLY (litellm's inner retries x tau2's tenacity
-      wrapper); keep the inner count small and let the outer one back off.
-
-    Values are rebound on ``tau2.config`` before the tau2 modules that read
-    them at import time (``tau2.utils.retry``, ``tau2.utils.llm_utils``,
-    ``tau2.evaluator.evaluator_nl_assertions``, ...) are imported. If any of
-    those modules is already imported, the patch cannot reach it and we warn
-    rather than mislead.
+    Importing ``tau2.config`` normally executes ``tau2.__init__`` first. That
+    eagerly imports the evaluator and retry modules, which bind these constants
+    before control returns. Load the standalone config module directly instead,
+    patch it, and only then let tau2's package import proceed.
     """
     already = [
         m
-        for m in ("tau2.utils.retry", "tau2.utils.llm_utils", "tau2.registry")
+        for m in (
+            "tau2.evaluator.evaluator_nl_assertions",
+            "tau2.environment.utils.interface_agent",
+            "tau2.utils.retry",
+            "tau2.utils.llm_utils",
+        )
         if m in sys.modules
     ]
-    import tau2.config as _cfg
-
+    config = _load_tau2_config()
     env = os.environ
-    _cfg.DEFAULT_LLM_NL_ASSERTIONS = env.get(
-        "TAU2_LLM_NL_ASSERTIONS", _cfg.DEFAULT_LLM_NL_ASSERTIONS
-    )
-    _cfg.DEFAULT_LLM_ENV_INTERFACE = env.get(
-        "TAU2_LLM_ENV_INTERFACE", _cfg.DEFAULT_LLM_ENV_INTERFACE
-    )
-    _cfg.DEFAULT_MAX_RETRIES = int(
-        env.get("TAU2_MAX_RETRIES", _cfg.DEFAULT_MAX_RETRIES)
-    )
-    _cfg.DEFAULT_RETRY_ATTEMPTS = int(
-        env.get("TAU2_RETRY_ATTEMPTS", _cfg.DEFAULT_RETRY_ATTEMPTS)
-    )
-    _cfg.DEFAULT_RETRY_MIN_WAIT = float(
-        env.get("TAU2_RETRY_MIN_WAIT", _cfg.DEFAULT_RETRY_MIN_WAIT)
-    )
-    _cfg.DEFAULT_RETRY_MAX_WAIT = float(
-        env.get("TAU2_RETRY_MAX_WAIT", _cfg.DEFAULT_RETRY_MAX_WAIT)
-    )
-    _cfg.DEFAULT_RETRY_MULTIPLIER = float(
-        env.get("TAU2_RETRY_MULTIPLIER", _cfg.DEFAULT_RETRY_MULTIPLIER)
-    )
 
-    if already and any(
-        env.get(v)
-        for v in (
-            "TAU2_LLM_NL_ASSERTIONS",
-            "TAU2_LLM_ENV_INTERFACE",
-            "TAU2_MAX_RETRIES",
-            "TAU2_RETRY_ATTEMPTS",
-            "TAU2_RETRY_MIN_WAIT",
-            "TAU2_RETRY_MAX_WAIT",
-            "TAU2_RETRY_MULTIPLIER",
-        )
-    ):
+    overrides = {
+        "DEFAULT_LLM_NL_ASSERTIONS": ("TAU2_LLM_NL_ASSERTIONS", str),
+        "DEFAULT_LLM_ENV_INTERFACE": ("TAU2_LLM_ENV_INTERFACE", str),
+        "DEFAULT_MAX_RETRIES": ("TAU2_MAX_RETRIES", int),
+        "DEFAULT_RETRY_ATTEMPTS": ("TAU2_RETRY_ATTEMPTS", int),
+        "DEFAULT_RETRY_MIN_WAIT": ("TAU2_RETRY_MIN_WAIT", float),
+        "DEFAULT_RETRY_MAX_WAIT": ("TAU2_RETRY_MAX_WAIT", float),
+        "DEFAULT_RETRY_MULTIPLIER": ("TAU2_RETRY_MULTIPLIER", float),
+    }
+    for attr, (env_name, convert) in overrides.items():
+        value = env.get(env_name)
+        if value:
+            setattr(config, attr, convert(value))
+
+    if already and any(env.get(env_name) for env_name, _ in overrides.values()):
         import warnings
 
         warnings.warn(
             f"rx_bench was imported after {already}; TAU2_* overrides may not "
-            "take effect for values those modules bound at import time. "
-            "Import rx_bench before any tau2 module (or use the rxbench CLI).",
+            "affect values those modules already bound. Import rx_bench first "
+            "(or use the rxbench CLI).",
             RuntimeWarning,
             stacklevel=2,
         )

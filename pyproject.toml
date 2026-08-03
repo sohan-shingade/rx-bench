@@ -10,9 +10,11 @@ keywords = ["benchmark", "llm", "voice-agents", "healthcare", "patient-safety", 
 classifiers = [
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = [
+    "python-dotenv>=1.0",
     "tau2 @ git+https://github.com/sierra-research/tau2-bench@363133a",
 ]
 
@@ -22,6 +24,8 @@ voice = [
     "numpy>=1.26",
     "sounddevice>=0.4",
     "deepgram-sdk>=3.0",
+    # tau2's voice stack imports stdlib audioop, removed in Python 3.13.
+    "audioop-lts>=0.2.1; python_version >= '3.13'",
     # Audio-native (class B) runs need tau2's own voice stack
     # (elevenlabs, websockets, google-genai, livekit-agents, ...).
     "tau2[voice] @ git+https://github.com/sierra-research/tau2-bench@363133a",
