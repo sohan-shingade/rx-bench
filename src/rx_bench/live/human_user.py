@@ -127,11 +127,6 @@ def _short_args(arguments: Optional[dict]) -> str:
 class HumanUser(HalfDuplexUser[UserState]):
     """The caller is a person at a keyboard or a microphone."""
 
-    #: The most recently constructed instance. tau2's registry builds the user
-    #: itself and hands the object to the orchestrator, so a caller that wants
-    #: the live transcript after a crash has no other handle on it.
-    latest: "Optional[HumanUser]" = None
-
     def __init__(
         self,
         tools: Optional[list[Tool]] = None,
@@ -154,7 +149,6 @@ class HumanUser(HalfDuplexUser[UserState]):
         # A person cannot say those words again; keeping a running copy is the
         # difference between a lost call and a partial one.
         self.transcript: list[Message] = []
-        HumanUser.latest = self
 
     def get_init_state(
         self, message_history: Optional[list[Message]] = None

@@ -56,6 +56,7 @@ from rx_bench.voice_pipeline.pipeline import (  # noqa: E402
     PipelineConfig,
     SpeechChannel,
     load_env_file,
+    resolve_profile,
 )
 from rx_bench.voice_pipeline.pipeline_user import bind_pipeline_user  # noqa: E402
 
@@ -90,9 +91,9 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     ap.add_argument("--max-steps", type=int, default=int(os.environ.get("MAX_STEPS", 40)))
     ap.add_argument("--max-errors", type=int, default=10)
     ap.add_argument("--temperature", type=float, default=0.0)
-    ap.add_argument("--evaluate", default="env",
-                    help="tau2 evaluation type ('env' needs no judge; "
-                         "'all_with_nl_assertions' adds the LLM judge)")
+    ap.add_argument("--evaluate", default="all_with_nl_assertions",
+                    help="tau2 evaluation type (default: full env + NL assertions; "
+                         "pass 'env' explicitly for env-only evaluation)")
     ap.add_argument("--no-keep-audio", action="store_true",
                     help="delete per-turn WAVs after ASR (transcripts still logged)")
     ap.add_argument("--no-scorecard", action="store_true")
@@ -134,6 +135,72 @@ def git_rev() -> str:
         return "unknown"
 
 
+def resume_config(args: argparse.Namespace) -> dict:
+    """Parameters that must stay fixed inside one auto-resumed run."""
+    return {
+        "profile": resolve_profile(args.profile),
+        "asr_model": args.asr_model,
+        "voices": sorted(v.strip() for v in args.voices.split(",") if v.strip())
+        if args.voices else None,
+        "seed": args.seed,
+        "agent_llm": args.agent_llm,
+        "user_llm": args.user_llm,
+        "temperature": args.temperature,
+        "evaluation_type": args.evaluate,
+        "keep_audio": not args.no_keep_audio,
+    }
+
+
+def refuse_incompatible_resume(run_dir: Path, requested: dict) -> None:
+    """Refuse to combine unlike channel/model conditions in one output."""
+    manifest_path = run_dir / "manifest.json"
+    if not manifest_path.exists():
+        if run_dir.exists() and any(run_dir.iterdir()):
+            raise SystemExit(
+                f"cannot resume {run_dir}: manifest.json is missing; pass a fresh --run-name"
+            )
+        return
+    try:
+        existing_manifest = json.loads(manifest_path.read_text())
+    except (OSError, ValueError) as exc:
+        raise SystemExit(
+            f"cannot resume {run_dir}: manifest.json is unreadable ({exc}); "
+            "pass a fresh --run-name"
+        )
+    existing = existing_manifest.get("resume_config")
+    if existing is None:
+        raise SystemExit(
+            f"cannot safely resume legacy run {run_dir}: pipeline parameters were not "
+            "recorded; pass a fresh --run-name"
+        )
+    differences = [
+        f"{key}: existing={existing.get(key)!r}, requested={value!r}"
+        for key, value in requested.items()
+        if existing.get(key) != value
+    ]
+    if differences:
+        raise SystemExit(
+            f"refusing to mix conditions while resuming {run_dir}: "
+            + "; ".join(differences)
+            + ". Pass a fresh --run-name."
+        )
+
+
+def annotate_results_info(path: Path, evaluation_type: str) -> None:
+    """Stamp raw results with an explicit, human-readable evaluation notice."""
+    payload = json.loads(path.read_text())
+    info = payload.setdefault("info", {})
+    info["rx_bench_evaluation"] = {
+        "type": evaluation_type,
+        "notice": (
+            "FULL EVALUATION (environment and NL assertions)"
+            if evaluation_type == "all_with_nl_assertions"
+            else "ENV-ONLY EVALUATION (NL assertions were not evaluated)"
+        ),
+    }
+    path.write_text(json.dumps(payload, indent=2))
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     args = parse_args(argv)
     logger.remove()
@@ -164,6 +231,8 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     run_name = args.run_name or f"pipeline-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
     run_dir = RESULTS_ROOT / run_name
+    requested_resume_config = resume_config(args)
+    refuse_incompatible_resume(run_dir, requested_resume_config)
     run_dir.mkdir(parents=True, exist_ok=True)
 
     channel = SpeechChannel(PipelineConfig(
@@ -226,6 +295,12 @@ def main(argv: Optional[list[str]] = None) -> int:
         "concurrency": args.concurrency,
         "seed": args.seed,
         "evaluation_type": args.evaluate,
+        "evaluation_notice": (
+            "FULL EVALUATION (environment and NL assertions)"
+            if args.evaluate == "all_with_nl_assertions"
+            else "ENV-ONLY EVALUATION (NL assertions were not evaluated)"
+        ),
+        "resume_config": requested_resume_config,
         "channel": channel.manifest(),
     }
     (run_dir / "manifest.json").write_text(json.dumps(manifest, indent=2))
@@ -235,6 +310,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     print(f"    agent   {args.agent_llm}")
     print(f"    user    {args.user_llm} -> say -> {channel.config.profile} -> "
           f"deepgram/{args.asr_model}")
+    print(f"    evaluation {manifest['evaluation_notice']}")
     print(f"    saving  {run_dir}")
 
     save_path = run_dir / "results.json"
@@ -245,6 +321,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         save_dir=run_dir,
         evaluation_type=evaluation_type,
     )
+    if save_path.exists():
+        annotate_results_info(save_path, args.evaluate)
 
     print(f"\n==> results at {save_path}")
     print(f"    per-turn channel log: {run_dir / 'pipeline_turns.jsonl'}")

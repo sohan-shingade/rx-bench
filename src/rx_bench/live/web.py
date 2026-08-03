@@ -29,7 +29,9 @@ stop showing the truth:
 from __future__ import annotations
 
 import json
+import os
 import queue
+import socket
 import sys
 import threading
 import traceback
@@ -49,6 +51,35 @@ from rx_bench.live.human_user import HumanUser, unwrap_envelope  # noqa: E402
 UI_HTML = Path(__file__).with_name("ui.html")
 DEFAULT_PORT = 8975
 MAX_AUDIO_BYTES = 25 * 1024 * 1024  # ~17 min of 16 kHz mono; a turn is seconds
+REMOTE_ENV = "RXBENCH_ALLOW_REMOTE"
+OOS_CONFIRM_TOKEN = "I_UNDERSTAND_OOS"
+
+
+def is_loopback_host(host: str) -> bool:
+    """Whether every address for a bind host is loopback."""
+    if host.lower() == "localhost":
+        return True
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except socket.gaierror:
+        return False
+    import ipaddress
+
+    return bool(infos) and all(ipaddress.ip_address(info[4][0]).is_loopback for info in infos)
+
+
+def allow_bind(host: str) -> bool:
+    if is_loopback_host(host):
+        return True
+    if os.environ.get(REMOTE_ENV) == "1":
+        print(f"WARNING: {REMOTE_ENV}=1; unauthenticated control UI is remotely reachable")
+        return True
+    print(
+        f"refusing non-loopback bind {host!r}; set {REMOTE_ENV}=1 only if you accept "
+        "remote unauthenticated access",
+        file=sys.stderr,
+    )
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -343,14 +374,18 @@ class Session:
         self.thread: Optional[threading.Thread] = None
         self.state = "idle"
         self.meta: dict = {}
+        self._lock = threading.Lock()
+        self.user: Optional[HumanUser] = None
 
     @property
     def running(self) -> bool:
         return self.thread is not None and self.thread.is_alive()
 
-    def start(self, options: dict) -> dict:
-        if self.running:
-            return {"ok": False, "error": "a call is already in progress"}
+    def start(self, options: dict) -> tuple[dict, int]:
+        with self._lock:
+            if self.running or self.state == "starting":
+                return {"ok": False, "error": "a call is already in progress"}, 409
+            self.state = "starting"
 
         self.bus.reset()
         self.channel = WebChannel(self.bus)
@@ -359,12 +394,14 @@ class Session:
         args.model = options.get("model") or talk.DEFAULT_AGENT_LLM
         args.max_steps = int(options.get("max_steps") or 40)
         args.retries = int(options.get("retries") or 6)
-        args.evaluate = options.get("evaluate") or "env"
+        args.evaluate = options.get("evaluate") or "all_with_nl_assertions"
+        args.confirm_oos = options.get("confirm_oos")
 
         try:
-            task = talk.load_task(args.task)
+            task = talk.load_task(args.task, args.confirm_oos)
         except SystemExit as exc:
-            return {"ok": False, "error": str(exc)}
+            self.state = "idle"
+            return {"ok": False, "error": str(exc)}, 400
 
         self.state = "running"
         self.meta = {
@@ -377,7 +414,7 @@ class Session:
             target=self._run, args=(args, task), name="call", daemon=True
         )
         self.thread.start()
-        return {"ok": True, **self.meta}
+        return {"ok": True, **self.meta}, 200
 
     def _run(self, args: Any, task: Any) -> None:
         from tau2.data_model.simulation import Results
@@ -391,11 +428,13 @@ class Session:
         restore = instrument_environment(bus)
         try:
             name = f"web_human_user_{started.strftime('%H%M%S%f')}"
-            registry.register_user(talk.bind_channel(channel), name)
+            session: dict[str, HumanUser] = {}
+            registry.register_user(talk.bind_channel(channel, session), name)
             config = talk.build_config(args)
             config.user = name
 
             info = get_info(config)
+            self.user = session.get("user")
             save_dir = talk.session_dir(args.save_root, task.id, started)
             save_dir.mkdir(parents=True, exist_ok=True)
             save_path = save_dir / "results.json"
@@ -416,6 +455,7 @@ class Session:
                 evaluation_type=EvaluationType(args.evaluate),
                 save_dir=save_dir,
             )
+            self.user = session.get("user")
             results = Results(info=info, tasks=[task], simulations=[simulation])
             save_path.write_text(results.model_dump_json(indent=2))
             self._report(task, simulation, save_path)
@@ -428,7 +468,8 @@ class Session:
                 detail=traceback.format_exc()[-2000:],
             )
             try:
-                salvaged = len(HumanUser.latest.transcript) if HumanUser.latest else 0
+                self.user = session.get("user")
+                salvaged = len(self.user.transcript) if self.user else 0
                 if salvaged:
                     bus.emit(
                         "note",
@@ -514,7 +555,8 @@ class Handler(BaseHTTPRequestHandler):
         if self.path in ("/", "/index.html"):
             self._send(200, UI_HTML.read_bytes(), "text/html; charset=utf-8")
         elif self.path == "/tasks":
-            self._json({"tasks": _task_index()})
+            confirmation = self.headers.get("X-RXBench-OOS-Confirm")
+            self._json({"tasks": _task_index(confirmation)})
         elif self.path == "/config":
             self._json(_config(self.transcriber))
         elif self.path == "/events":
@@ -531,7 +573,8 @@ class Handler(BaseHTTPRequestHandler):
         channel = self.session.channel
 
         if self.path == "/start":
-            self._json(self.session.start(body))
+            payload, code = self.session.start(body)
+            self._json(payload, code)
         elif self.path == "/say":
             text = (body.get("text") or "").strip()
             if not channel or not self.session.running:
@@ -624,9 +667,13 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.flush()
 
 
-def _task_index() -> list[dict]:
+def _task_index(confirmation: Optional[str] = None) -> list[dict]:
     out = [{"id": "", "label": "free-form walk-in (no assertions)"}]
+    oos = talk.oos_task_ids()
+    confirmed = confirmation == talk.OOS_CONFIRM_TOKEN
     for task in talk.all_tasks():
+        if task.id in oos and not confirmed:
+            continue
         purpose = ""
         if task.description and task.description.purpose:
             purpose = task.description.purpose.strip().splitlines()[0]
@@ -683,6 +730,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         help="force a transcription backend (default: Deepgram if keyed, else whisper)",
     )
     args = parser.parse_args(argv)
+    if not allow_bind(args.host):
+        return 2
 
     bus = Bus()
     install_log_sink(bus, args.log_level)

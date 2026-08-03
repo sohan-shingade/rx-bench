@@ -70,6 +70,7 @@ from rx_bench.live.human_user import HumanUser  # noqa: E402
 DOMAIN = "medical_reception"
 USER_NAME = "human_user"
 WALKIN_TASK_ID = "live-walkin"
+OOS_CONFIRM_TOKEN = "I_UNDERSTAND_OOS"
 
 #: Recorded in the run's ``Info`` where a model id would normally sit. A live
 #: session must never be mistaken for a simulated one when it is read back six
@@ -121,9 +122,27 @@ def all_tasks() -> list[Any]:
     return registry.get_tasks_loader(DOMAIN)(None)
 
 
-def load_task(task_id: Optional[str]) -> Any:
+def oos_task_ids() -> set[str]:
+    from tau2.registry import registry
+
+    loader = registry.get_task_splits_loader(DOMAIN)
+    if loader is None:
+        return set()
+    return set((loader() or {}).get("oos") or [])
+
+
+def require_oos_confirmation(task_id: Optional[str], confirmation: Optional[str]) -> None:
+    if task_id in oos_task_ids() and confirmation != OOS_CONFIRM_TOKEN:
+        raise SystemExit(
+            f"task {task_id!r} is out-of-sample; pass "
+            f"--confirm-oos {OOS_CONFIRM_TOKEN} to spend this look"
+        )
+
+
+def load_task(task_id: Optional[str], confirm_oos: Optional[str] = None) -> Any:
     if task_id is None:
         return walkin_task()
+    require_oos_confirmation(task_id, confirm_oos)
     tasks = all_tasks()
     for task in tasks:
         if task.id == task_id:
@@ -132,8 +151,12 @@ def load_task(task_id: Optional[str]) -> Any:
     raise SystemExit(f"no task {task_id!r} in {DOMAIN} (e.g. {known}, …)")
 
 
-def list_tasks() -> int:
+def list_tasks(confirm_oos: Optional[str] = None) -> int:
+    oos = oos_task_ids()
+    confirmed = confirm_oos == OOS_CONFIRM_TOKEN
     for task in all_tasks():
+        if task.id in oos and not confirmed:
+            continue
         purpose = ""
         if task.description and task.description.purpose:
             purpose = task.description.purpose.strip().splitlines()[0]
@@ -146,7 +169,7 @@ def list_tasks() -> int:
 # ---------------------------------------------------------------------------
 
 
-def bind_channel(channel: Channel) -> type:
+def bind_channel(channel: Channel, session: Optional[dict[str, HumanUser]] = None) -> type:
     """Produce a registrable user class that already knows its channel.
 
     tau2's registry takes a *class* and constructs it itself, passing a fixed
@@ -159,6 +182,8 @@ def bind_channel(channel: Channel) -> type:
         def __init__(self, **kwargs: Any):
             kwargs.pop("channel", None)
             super().__init__(channel=channel, **kwargs)
+            if session is not None:
+                session["user"] = self
 
     BoundHumanUser.__name__ = "BoundHumanUser"
     return BoundHumanUser
@@ -322,7 +347,13 @@ def show_actions(channel: Channel, simulation: Any) -> None:
 # ---------------------------------------------------------------------------
 
 
-def save_partial(task: Any, info: Any, save_path: Path, started: datetime) -> int:
+def save_partial(
+    task: Any,
+    info: Any,
+    save_path: Path,
+    started: datetime,
+    user: Optional[HumanUser],
+) -> int:
     """Write whatever of the call actually happened.
 
     Not a substitute for a completed run: the environment was never evaluated,
@@ -332,7 +363,7 @@ def save_partial(task: Any, info: Any, save_path: Path, started: datetime) -> in
     """
     from tau2.data_model.simulation import Results, SimulationRun, TerminationReason
 
-    captured = list(HumanUser.latest.transcript) if HumanUser.latest else []
+    captured = list(user.transcript) if user else []
     if not captured:
         return 0
 
@@ -423,6 +454,11 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         default=None,
         help="run inside a real graded case (default: free-form walk-in)",
     )
+    parser.add_argument(
+        "--confirm-oos",
+        default=None,
+        help=f"exact token required for OOS task content: {OOS_CONFIRM_TOKEN}",
+    )
     parser.add_argument("--list-tasks", action="store_true", help="list case ids and exit")
     parser.add_argument("--model", default=DEFAULT_AGENT_LLM, help="agent model id")
     parser.add_argument("--temperature", type=float, default=0.0)
@@ -436,10 +472,10 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--evaluate",
-        default="env",
+        default="all_with_nl_assertions",
         help=(
-            "tau2 evaluation type. 'env' checks the chart and needs no judge; "
-            "'all_with_nl_assertions' also runs the LLM judge (extra model calls)"
+            "tau2 evaluation type (default: full env + NL assertions; "
+            "pass 'env' explicitly for env-only evaluation)"
         ),
     )
     parser.add_argument(
@@ -471,7 +507,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     logger.add(sys.stderr, level=args.log_level)
 
     if args.list_tasks:
-        return list_tasks()
+        return list_tasks(args.confirm_oos)
 
     try:
         channel, asr = make_channel(args)
@@ -485,9 +521,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     from tau2.runner.batch import run_single_task
     from tau2.runner.helpers import get_info
 
-    registry.register_user(bind_channel(channel), USER_NAME)
+    session: dict[str, HumanUser] = {}
+    registry.register_user(bind_channel(channel, session), USER_NAME)
 
-    task = load_task(args.task)
+    task = load_task(args.task, args.confirm_oos)
     config = build_config(args)
     info = get_info(config)
     policy_sha = policy_fingerprint(info.environment_info.policy)
@@ -522,7 +559,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     except Exception as exc:  # noqa: BLE001 - diagnosed, not swallowed
         channel.close()
         code = report_call_failure(exc, save_dir)
-        save_partial(task, info, save_path, now)
+        save_partial(task, info, save_path, now, session.get("user"))
         # A failure that salvaged nothing leaves an empty directory behind, and
         # a results tree littered with empty run dirs makes it harder to find
         # the runs that did happen.

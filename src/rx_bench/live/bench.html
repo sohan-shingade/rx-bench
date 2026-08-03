@@ -703,7 +703,7 @@ function drawTable() {
       btn.title = 'this record has no registry file to read cases from';
     } else {
       btn.title = 'open every case this run scored';
-      btn.onclick = () => openInvestigation(rec.registry_file);
+      btn.onclick = () => openInvestigation(rec);
     }
     it.appendChild(btn);
     tr.appendChild(it);
@@ -835,7 +835,8 @@ function invMessage(text, bad) {
   host.appendChild(node);
 }
 
-async function openInvestigation(file) {
+async function openInvestigation(record) {
+  const file = record.registry_file;
   const panel = $('invpanel');
   panel.hidden = false;
   $('invtitle').textContent = file;
@@ -843,7 +844,9 @@ async function openInvestigation(file) {
   invMessage('reading ' + file + ' …');
   panel.scrollIntoView({block: 'nearest'});
   try {
-    const data = await getJSON('/api/investigate?run=' + encodeURIComponent(file));
+    const confirm = record.oos
+      ? '&confirm_oos=' + encodeURIComponent(STATE.oos_confirm_token) : '';
+    const data = await getJSON('/api/investigate?run=' + encodeURIComponent(file) + confirm);
     INV = {file, run: data.run || {}, cases: data.cases || []};
     drawInvestigation();
   } catch (err) {
@@ -965,7 +968,8 @@ async function openCase(c, row) {
   row.after(host);
   const url = '/api/investigate?run=' + encodeURIComponent(INV.file)
     + '&task=' + encodeURIComponent(c.task_id)
-    + '&trial=' + encodeURIComponent(c.trial ?? 0);
+    + '&trial=' + encodeURIComponent(c.trial ?? 0)
+    + (INV.run.oos ? '&confirm_oos=' + encodeURIComponent(STATE.oos_confirm_token) : '');
   try {
     const detail = await getJSON(url);
     host.innerHTML = '';
@@ -1200,7 +1204,7 @@ $('run').onclick = async () => {
     split: $('split').value,
     trials: Math.max(1, Math.min(5, +$('trials').value || 1)),
     agent_llm: $('agent').value.trim(),
-    confirm_oos: $('confirm').checked,
+    confirm_oos: $('confirm').checked ? STATE.oos_confirm_token : null,
   });
   if (!res.ok) {
     $('launcherr').hidden = false;

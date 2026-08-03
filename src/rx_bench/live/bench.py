@@ -50,6 +50,9 @@ RUN_SH = PROJECT_ROOT / "scripts" / "run.sh"
 SIMULATIONS_DIR = TAU2_ROOT / "data" / "simulations"
 DEFAULT_PORT = 8990
 DEFAULT_AGENT_LLM = "gpt-4.1-2025-04-14"
+REMOTE_ENV = "RXBENCH_ALLOW_REMOTE"
+OOS_CONFIRM_TOKEN = "I_UNDERSTAND_OOS"
+OOS_PEEKS_DIR = PROJECT_ROOT / "results" / "oos_peeks"
 
 #: Rough wall-clock per case at CONCURRENCY=2 against the local proxy, so the
 #: page can warn that `base` is a ~40 minute commitment, not a click.
@@ -431,6 +434,11 @@ def investigate_payload(
     )
     if record is None:
         return {"error": f"no recorded run named {run_file!r}"}, 404
+    if record.get("oos") and params.get("confirm_oos") != OOS_CONFIRM_TOKEN:
+        return {
+            "error": "OOS task contents require exact confirmation",
+            "confirm_oos": OOS_CONFIRM_TOKEN,
+        }, 403
     results_path = Path(record.get("results_path") or "")
     try:
         results = json.loads(results_path.read_text())
@@ -461,6 +469,35 @@ def investigate_payload(
 # ---------------------------------------------------------------------------
 
 
+def record_oos_peek(run: BenchRun, status: str) -> None:
+    """Record every OOS launch, including stopped and failed attempts."""
+    if run.split not in experiments.OOS_SPLITS:
+        return
+    OOS_PEEKS_DIR.mkdir(parents=True, exist_ok=True)
+    path = OOS_PEEKS_DIR / f"{run.run_name}.json"
+    path.write_text(json.dumps({
+        "recorded_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "version_id": run.version["id"],
+        "run_name": run.run_name,
+        "status": status,
+    }, indent=2))
+
+
+def oos_peek_count(version_id: Optional[str] = None) -> int:
+    count = 0
+    if not OOS_PEEKS_DIR.exists():
+        return count
+    for path in OOS_PEEKS_DIR.glob("*.json"):
+        try:
+            peek = json.loads(path.read_text())
+        except (OSError, ValueError):
+            continue
+        if version_id and peek.get("version_id") != version_id:
+            continue
+        count += 1
+    return count
+
+
 def validate_run_request(
     body: dict[str, Any],
     splits: dict[str, int],
@@ -478,10 +515,10 @@ def validate_run_request(
         return None, "trials must be an integer"
     if not 1 <= trials <= 5:
         return None, "trials must be between 1 and 5"
-    if split in experiments.OOS_SPLITS and not body.get("confirm_oos"):
+    if split in experiments.OOS_SPLITS and body.get("confirm_oos") != OOS_CONFIRM_TOKEN:
         return None, (
             "the oos split is the held-out final exam — confirm you mean to "
-            "spend a look at it (confirm_oos: true)"
+            f"spend a look at it (confirm_oos: {OOS_CONFIRM_TOKEN!r})"
         )
     agent_llm = (body.get("agent_llm") or "").strip() or DEFAULT_AGENT_LLM
     user_llm = (body.get("user_llm") or "").strip() or agent_llm
@@ -509,8 +546,9 @@ def build_state(current: Optional[BenchRun]) -> dict[str, Any]:
         "splits": splits,
         "seconds_per_case_estimate": SECONDS_PER_CASE_ESTIMATE,
         "oos_splits": sorted(experiments.OOS_SPLITS),
-        "oos_peeks_this_version": experiments.oos_run_count(runs, version["id"]),
-        "oos_peeks_total": experiments.oos_run_count(runs),
+        "oos_peeks_this_version": oos_peek_count(version["id"]),
+        "oos_peeks_total": oos_peek_count(),
+        "oos_confirm_token": OOS_CONFIRM_TOKEN,
         "defaults": {"agent_llm": DEFAULT_AGENT_LLM, "trials": 1, "split": "smoke"},
         "experiments": runs,
         "running": current.describe() if current and current.running else None,
@@ -583,6 +621,7 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 run = BenchRun(self.bus, **params)
                 Handler.current = run
+                record_oos_peek(run, "started")
                 run.start()
             self._json({"ok": True, **run.describe()})
         elif self.path == "/stop":
@@ -639,6 +678,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     parser.add_argument("--host", default="127.0.0.1")
     args = parser.parse_args(argv)
+    from rx_bench.live.web import allow_bind  # noqa: PLC0415
+
+    if not allow_bind(args.host):
+        return 2
 
     Handler.bus = EventBus()
     server = ThreadingHTTPServer((args.host, args.port), Handler)

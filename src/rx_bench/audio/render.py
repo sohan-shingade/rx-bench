@@ -29,6 +29,7 @@ wpm rushed caller are different acoustic problems even with identical text.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 import shutil
@@ -171,7 +172,10 @@ def resolve_roster(voices: list[Voice] | None = None) -> dict[str, dict]:
 
 def text_hash(text: str, voice: str | None, rate: int | None) -> str:
     """Stable short hash over everything that determines the audio."""
-    key = f"{text}\x00{voice or ''}\x00{rate or ''}\x00{TARGET_SR}"
+    key = (
+        f"{text}\x00{voice or ''}\x00{rate or ''}\x00"
+        f"{TARGET_SR}\x00{TARGET_CHANNELS}\x00{TARGET_WIDTH}"
+    )
     return hashlib.sha256(key.encode("utf-8")).hexdigest()[:10]
 
 
@@ -246,15 +250,20 @@ def render(text: str, out_path: str | Path, voice: str | None = None,
     """
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    cache_path = out_path.with_suffix(out_path.suffix + ".tts.json")
+    cache_key = text_hash(text, voice, rate)
 
     if out_path.exists() and not overwrite:
         try:
+            cached = json.loads(cache_path.read_text())
             info = wav_info(out_path)
-            if info["frames"] > 0:
+            if cached.get("key") == cache_key and info["frames"] > 0:
                 return {"path": str(out_path), "text": text, "voice": voice,
                         "rate": rate, "skipped": True, **info}
         except Exception:
-            out_path.unlink(missing_ok=True)  # corrupt, re-render
+            pass
+        out_path.unlink(missing_ok=True)  # stale or corrupt; re-render
+        cache_path.unlink(missing_ok=True)
 
     tmp = out_path.with_suffix(".partial.wav")
     tmp.unlink(missing_ok=True)
@@ -283,6 +292,15 @@ def render(text: str, out_path: str | Path, voice: str | None = None,
         raise RenderError(f"empty render for voice={voice!r} text={text[:40]!r}")
 
     shutil.move(str(tmp), str(out_path))
+    cache_path.write_text(json.dumps({
+        "key": cache_key,
+        "text": text,
+        "voice": voice,
+        "rate": rate,
+        "sample_rate": TARGET_SR,
+        "channels": TARGET_CHANNELS,
+        "sample_width": TARGET_WIDTH,
+    }, sort_keys=True))
     return {"path": str(out_path), "text": text, "voice": voice, "rate": rate,
             "skipped": False, **info}
 

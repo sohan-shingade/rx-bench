@@ -101,12 +101,19 @@ load_env_file() {
   done < "$f"
 }
 load_env_file "$ROOT/.env"
+TTS_PROVIDER="${TAU2_TTS_PROVIDER:-elevenlabs}"
+case "$TTS_PROVIDER" in
+  deepgram|elevenlabs) ;;
+  *) echo "ERROR: unknown TAU2_TTS_PROVIDER '$TTS_PROVIDER' (deepgram|elevenlabs)" >&2; exit 2 ;;
+esac
 
 # ---------------------------------------------------------------------------
 # Preflight: python deps
 # ---------------------------------------------------------------------------
 fail=0
-if ! "${PYRUN[@]}" -c "import elevenlabs, deepgram, websockets" >/dev/null 2>&1; then
+voice_imports="import deepgram, websockets"
+[ "$TTS_PROVIDER" = "elevenlabs" ] && voice_imports="import elevenlabs, deepgram, websockets"
+if ! "${PYRUN[@]}" -c "$voice_imports" >/dev/null 2>&1; then
   echo "ERROR: voice dependencies are not installed in the rx-bench environment." >&2
   echo "  Fix:" >&2
   echo "    cd $ROOT && uv sync --extra voice   # or: pip install -e '.[voice]'" >&2
@@ -118,17 +125,19 @@ fi
 # ---------------------------------------------------------------------------
 missing=()
 # Always required in voice mode:
-#  - OPENAI_API_KEY: user-sim turn-taking decision model is hard-coded to gpt-4.1
-#    (src/tau2/config.py VOICE_USER_SIMULATOR_DECISION_MODEL) and the default
-#    user LLM is gpt-4.1-2025-04-14.
-#  - ELEVENLABS_API_KEY: user-sim TTS (only synthesis provider).
-#  - DEEPGRAM_API_KEY: transcription for evaluation (default nova-3).
-[ -n "${OPENAI_API_KEY:-}" ]     || missing+=(OPENAI_API_KEY)
-[ -n "${ELEVENLABS_API_KEY:-}" ] || missing+=(ELEVENLABS_API_KEY)
-[ -n "${DEEPGRAM_API_KEY:-}" ]   || missing+=(DEEPGRAM_API_KEY)
+#  - DEEPGRAM_API_KEY: transcription for evaluation (and Deepgram TTS when selected).
+#  - ELEVENLABS_API_KEY: user-sim TTS, only when ElevenLabs is selected.
+#  - OPENAI_API_KEY: default user-sim turn-taking model, unless overridden.
+[ -n "${DEEPGRAM_API_KEY:-}" ] || missing+=(DEEPGRAM_API_KEY)
+if [ "$TTS_PROVIDER" = "elevenlabs" ]; then
+  [ -n "${ELEVENLABS_API_KEY:-}" ] || missing+=(ELEVENLABS_API_KEY)
+fi
+if [ -z "${TAU2_VOICE_USER_LLM:-}" ]; then
+  [ -n "${OPENAI_API_KEY:-}" ] || missing+=(OPENAI_API_KEY)
+fi
 
 case "$PROVIDER" in
-  openai)  ;; # covered by OPENAI_API_KEY above
+  openai)  [ -n "${OPENAI_API_KEY:-}" ] || missing+=(OPENAI_API_KEY) ;;
   gemini)  [ -n "${GEMINI_API_KEY:-}" ] || [ -n "${GOOGLE_APPLICATION_CREDENTIALS:-}" ] \
              || [ -n "${GOOGLE_SERVICE_ACCOUNT_KEY:-}" ] || missing+=("GEMINI_API_KEY (or GOOGLE_APPLICATION_CREDENTIALS / GOOGLE_SERVICE_ACCOUNT_KEY)") ;;
   xai)     [ -n "${XAI_API_KEY:-}" ] || missing+=(XAI_API_KEY) ;;
@@ -148,23 +157,25 @@ fi
 # The voice IDs baked into src/tau2/data_model/voice_personas.py are
 # Sierra-internal and do not work on external ElevenLabs accounts.
 # ---------------------------------------------------------------------------
-if [ "$COMPLEXITY" = "control" ]; then
-  personas=(MATT_DELANEY LISA_BRENNER)
-else
-  personas=(MILDRED_KAPLAN ARJUN_ROY WEI_LIN MAMADOU_DIALLO PRIYA_PATIL)
-fi
-missing_voices=()
-for p in "${personas[@]}"; do
-  v="TAU2_VOICE_ID_${p}"
-  [ -n "${!v:-}" ] || missing_voices+=("$v")
-done
-if [ ${#missing_voices[@]} -gt 0 ] && [ "${TAU2_ALLOW_DEFAULT_VOICES:-0}" != "1" ]; then
-  echo "ERROR: no ElevenLabs voice-ID overrides set for complexity '$COMPLEXITY':" >&2
-  for v in "${missing_voices[@]}"; do echo "  - $v" >&2; done
-  echo "The built-in defaults are Sierra-internal and will be rejected by ElevenLabs." >&2
-  echo "Create voices (see docs/voice-personas.md in sierra-research/tau2-bench)" >&2
-  echo "and export the IDs, or set TAU2_ALLOW_DEFAULT_VOICES=1 to try anyway. Refusing to run." >&2
-  fail=1
+if [ "$TTS_PROVIDER" = "elevenlabs" ]; then
+  if [ "$COMPLEXITY" = "control" ]; then
+    personas=(MATT_DELANEY LISA_BRENNER)
+  else
+    personas=(MILDRED_KAPLAN ARJUN_ROY WEI_LIN MAMADOU_DIALLO PRIYA_PATIL)
+  fi
+  missing_voices=()
+  for p in "${personas[@]}"; do
+    v="TAU2_VOICE_ID_${p}"
+    [ -n "${!v:-}" ] || missing_voices+=("$v")
+  done
+  if [ ${#missing_voices[@]} -gt 0 ] && [ "${TAU2_ALLOW_DEFAULT_VOICES:-0}" != "1" ]; then
+    echo "ERROR: no ElevenLabs voice-ID overrides set for complexity '$COMPLEXITY':" >&2
+    for v in "${missing_voices[@]}"; do echo "  - $v" >&2; done
+    echo "The built-in defaults are Sierra-internal and will be rejected by ElevenLabs." >&2
+    echo "Create voices (see docs/voice-personas.md in sierra-research/tau2-bench)" >&2
+    echo "and export the IDs, or set TAU2_ALLOW_DEFAULT_VOICES=1 to try anyway. Refusing to run." >&2
+    fail=1
+  fi
 fi
 
 # ---------------------------------------------------------------------------

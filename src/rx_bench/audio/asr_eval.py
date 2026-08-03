@@ -334,18 +334,22 @@ def evaluate(man: dict, transcribe: Transcriber, profiles: list[str] | None = No
             continue
         try:
             hyp = transcribe(e["path"])
+            failed = False
         except Exception as ex:
             errors.append({"id": e["id"], "error": repr(ex)})
             if verbose:
                 print(f"  ASR FAIL {e['id']}: {ex}", file=sys.stderr)
-            continue
+            # A failed turn contributes an empty hypothesis: every reference
+            # word is a deletion, so headline WER cannot improve during outages.
+            hyp = ""
+            failed = True
 
         w = wer(e["text"], hyp)
         row = {
             "id": e["id"], "kind": e["kind"], "profile": e["profile"],
             "pair_id": e["pair_id"], "member": e["member"], "red_flag": e["red_flag"],
             "voice": e["voice"], "rate_wpm": e["rate_wpm"], "archetype": e["archetype"],
-            "reference": e["text"], "hypothesis": hyp,
+            "reference": e["text"], "hypothesis": hyp, "asr_failed": failed,
             "wer": round(w["wer"], 4), "sub": w["sub"], "del": w["del"],
             "ins": w["ins"], "n_ref": w["n_ref"],
             "drug": e["drug"], "lasa_twin": e["lasa_twin"],
@@ -377,6 +381,7 @@ def summarize(rows: list[dict]) -> dict:
         n = max(len(lasa), 1)
         by_profile[prof] = {
             "n_renders": len(rs),
+            "failed_turns": sum(1 for r in rs if r.get("asr_failed")),
             "n_lasa": len(lasa),
             "wer": round(_mean(r["wer"] for r in rs), 4),
             "wer_micro": round(
@@ -408,6 +413,7 @@ def summarize(rows: list[dict]) -> dict:
     lasa_all = [r for r in rows if r["outcome"] is not None]
     overall = {
         "n_renders": len(rows),
+        "failed_turns": sum(1 for r in rows if r.get("asr_failed")),
         "n_lasa": len(lasa_all),
         "wer": round(_mean(r["wer"] for r in rows), 4),
         "drug_name_error_rate": round(
