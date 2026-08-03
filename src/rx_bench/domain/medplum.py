@@ -1,23 +1,28 @@
-"""Best-effort dual-write of domain writes into a Medplum FHIR project.
+"""Best-effort asynchronous mirror of domain writes into Medplum FHIR.
 
-The tau2 DB remains the eval source of truth; every write tool also posts the
-equivalent FHIR resource here so the demo (and the flight-recorder AuditEvents)
-can be shown live inside Medplum.
+The tau2 DB remains the eval source of truth. Writes are queued in memory and a
+single daemon thread submits transaction Bundles, so Medplum never blocks a tool
+call. The mirror may be dropped when the process exits.
 
 Configuration via env vars:
     MEDPLUM_BASE_URL   e.g. https://api.medplum.com  (default)
     MEDPLUM_CLIENT_ID / MEDPLUM_CLIENT_SECRET   client-credentials pair
 
-If credentials are missing or any request fails, writes are appended to a local
-JSONL spool (data/tau2/domains/medical_reception/medplum_spool.jsonl) so
-nothing is lost and eval runs are never blocked or slowed by the network.
+Every Bundle is also appended to a local ``medplum_spool.jsonl`` in the
+configured medical data directory. Network and spool failures are logged and
+never affect the benchmark source of truth.
 """
 
+import copy
 import json
 import os
+import queue
 import threading
+import uuid
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 import requests
 from loguru import logger
@@ -29,6 +34,8 @@ _TIMEOUT = 5
 
 
 class MedplumClient:
+    """Best-effort asynchronous Medplum transaction submitter."""
+
     def __init__(self) -> None:
         self.base_url = os.environ.get(
             "MEDPLUM_BASE_URL", "https://api.medplum.com"
@@ -37,6 +44,8 @@ class MedplumClient:
         self.client_secret = os.environ.get("MEDPLUM_CLIENT_SECRET")
         self._token: Optional[str] = None
         self._lock = threading.Lock()
+        self._queue: queue.Queue[dict] = queue.Queue()
+        threading.Thread(target=self._worker, daemon=True).start()
 
     @property
     def enabled(self) -> bool:
@@ -64,17 +73,24 @@ class MedplumClient:
             logger.warning(f"Medplum auth failed, spooling writes: {e}")
             return None
 
-    def _spool(self, resource: dict) -> None:
+    def _spool(self, bundle: dict) -> None:
         try:
             SPOOL_PATH.parent.mkdir(parents=True, exist_ok=True)
             with open(SPOOL_PATH, "a") as fp:
-                fp.write(json.dumps(resource) + "\n")
+                fp.write(json.dumps(bundle) + "\n")
         except Exception as e:
             logger.warning(f"Medplum spool write failed: {e}")
 
-    def create(self, resource: dict) -> None:
-        """Fire-and-forget create of a FHIR resource. Never raises."""
-        self._spool(resource)
+    def _worker(self) -> None:
+        while True:
+            bundle = self._queue.get()
+            try:
+                self._submit(bundle)
+            finally:
+                self._queue.task_done()
+
+    def _submit(self, bundle: dict) -> None:
+        self._spool(bundle)
         if not self.enabled:
             return
         with self._lock:
@@ -83,8 +99,8 @@ class MedplumClient:
             return
         try:
             resp = requests.post(
-                f"{self.base_url}/fhir/R4/{resource['resourceType']}",
-                json=resource,
+                f"{self.base_url}/fhir/R4",
+                json=bundle,
                 headers={
                     "Authorization": f"Bearer {token}",
                     "Content-Type": "application/fhir+json",
@@ -93,17 +109,29 @@ class MedplumClient:
             )
             if resp.status_code >= 400:
                 logger.warning(
-                    f"Medplum create {resource['resourceType']} -> {resp.status_code}: {resp.text[:200]}"
+                    f"Medplum transaction -> {resp.status_code}: {resp.text[:200]}"
                 )
         except Exception as e:
-            logger.warning(f"Medplum create failed (spooled locally): {e}")
+            logger.warning(f"Medplum transaction failed (spooled locally): {e}")
+
+    def create(self, bundle: dict) -> None:
+        """Queue a transaction Bundle; returns immediately and never raises."""
+        try:
+            self._queue.put_nowait(bundle)
+        except Exception as e:
+            logger.warning(f"Medplum queue failed: {e}")
 
 
 _client = MedplumClient()
+_patient_reference_prefix = "urn:rx-bench:patient:"
+_pending = threading.local()
 
 
 def _patient_ref(patient_id: str) -> dict:
-    return {"reference": f"Patient?identifier={patient_id}", "display": patient_id}
+    return {
+        "reference": f"{_patient_reference_prefix}{patient_id}",
+        "display": patient_id,
+    }
 
 
 def fhir_medication_statement(patient_id: str, name: str, dose: str, frequency: str) -> dict:
@@ -134,12 +162,24 @@ def fhir_allergy(patient_id: str, substance: str, reaction: str) -> dict:
     }
 
 
-def fhir_appointment(patient_id: str, provider_name: str, date: str, time: str, reason: str) -> dict:
+def fhir_appointment(
+    patient_id: str,
+    provider_name: str,
+    date: str,
+    time: str,
+    reason: str,
+    duration_minutes: int = 30,
+) -> dict:
+    start = datetime.strptime(f"{date}T{time}", "%Y-%m-%dT%H:%M").replace(
+        tzinfo=ZoneInfo("America/Los_Angeles")
+    )
+    end = start + timedelta(minutes=duration_minutes)
     return {
         "resourceType": "Appointment",
         "status": "booked",
         "description": reason,
-        "start": f"{date}T{time}:00-07:00",
+        "start": start.isoformat(),
+        "end": end.isoformat(),
         "participant": [
             {"actor": _patient_ref(patient_id), "status": "accepted"},
             {"actor": {"display": provider_name}, "status": "accepted"},
@@ -217,7 +257,13 @@ _CERTAINTY_RISK = {
 }
 
 
-def fhir_audit_event(action: str, target: str, value: str, note: str = "") -> dict:
+def fhir_audit_event(
+    action: str,
+    target: str,
+    value: str,
+    note: str = "",
+    resource_ref: Optional[str] = None,
+) -> dict:
     """An AuditEvent for any write the agent performed."""
     return {
         "resourceType": "AuditEvent",
@@ -228,6 +274,7 @@ def fhir_audit_event(action: str, target: str, value: str, note: str = "") -> di
         },
         "subtype": [{"code": action, "display": action}],
         "action": "C",
+        "recorded": datetime.now(timezone.utc).isoformat(),
         "outcome": "0",
         "agent": [
             {
@@ -239,7 +286,10 @@ def fhir_audit_event(action: str, target: str, value: str, note: str = "") -> di
         "source": {"observer": {"display": "medical_reception voice agent"}},
         "entity": [
             {
-                "what": {"display": target},
+                "what": {
+                    **({"reference": resource_ref} if resource_ref else {}),
+                    "display": target,
+                },
                 "detail": [{"type": "value", "valueString": value}]
                 + ([{"type": "note", "valueString": note}] if note else []),
             }
@@ -248,7 +298,12 @@ def fhir_audit_event(action: str, target: str, value: str, note: str = "") -> di
 
 
 def fhir_risk_assessment(
-    patient_id: str, action: str, value: str, certainty: str, note: str = ""
+    patient_id: str,
+    action: str,
+    value: str,
+    certainty: str,
+    note: str = "",
+    resource_ref: Optional[str] = None,
 ) -> dict:
     """A RiskAssessment recording how certain the agent was about a clinical write.
 
@@ -261,6 +316,7 @@ def fhir_risk_assessment(
         "resourceType": "RiskAssessment",
         "status": "final",
         "subject": _patient_ref(patient_id),
+        "basis": [{"reference": resource_ref}] if resource_ref else [],
         "method": {"text": "Voice agent readback verification"},
         "code": {"text": f"Transcription certainty for {action}"},
         "prediction": [
@@ -282,7 +338,120 @@ def fhir_risk_assessment(
     }
 
 
+def _replace_patient_references(value: object, patient_id: str, full_url: str) -> None:
+    if isinstance(value, dict):
+        if value.get("reference") == f"{_patient_reference_prefix}{patient_id}":
+            value["reference"] = full_url
+        for child in value.values():
+            _replace_patient_references(child, patient_id, full_url)
+    elif isinstance(value, list):
+        for child in value:
+            _replace_patient_references(child, patient_id, full_url)
+
+
+def _patient_id(resource: dict) -> Optional[str]:
+    if resource.get("resourceType") == "Patient":
+        identifiers = resource.get("identifier", [])
+        return identifiers[0].get("value") if identifiers else None
+
+    prefix = _patient_reference_prefix
+    stack: list[object] = [resource]
+    while stack:
+        value = stack.pop()
+        if isinstance(value, dict):
+            reference = value.get("reference")
+            if isinstance(reference, str) and reference.startswith(prefix):
+                return reference.removeprefix(prefix)
+            stack.extend(value.values())
+        elif isinstance(value, list):
+            stack.extend(value)
+    return None
+
+
+def build_transaction_bundle(
+    resource: dict,
+    audit_event: Optional[dict] = None,
+    risk_assessment: Optional[dict] = None,
+) -> dict:
+    """Build one valid transaction Bundle without performing network I/O."""
+    resource = copy.deepcopy(resource)
+    patient_id = _patient_id(resource)
+    patient_url = f"urn:uuid:{uuid.uuid4()}" if patient_id else None
+    resource_url = (
+        patient_url
+        if resource.get("resourceType") == "Patient" and patient_url
+        else f"urn:uuid:{uuid.uuid4()}"
+    )
+
+    entries = []
+    if patient_id and resource.get("resourceType") != "Patient":
+        entries.append(
+            {
+                "fullUrl": patient_url,
+                "resource": {
+                    "resourceType": "Patient",
+                    "identifier": [{"value": patient_id}],
+                },
+                "request": {
+                    "method": "POST",
+                    "url": "Patient",
+                    "ifNoneExist": f"identifier={patient_id}",
+                },
+            }
+        )
+
+    resources = [resource]
+    if audit_event:
+        audit_event = copy.deepcopy(audit_event)
+        audit_event["entity"][0]["what"]["reference"] = resource_url
+        resources.append(audit_event)
+    if risk_assessment:
+        risk_assessment = copy.deepcopy(risk_assessment)
+        risk_assessment["basis"] = [{"reference": resource_url}]
+        resources.append(risk_assessment)
+
+    if patient_id and patient_url:
+        for item in resources:
+            _replace_patient_references(item, patient_id, patient_url)
+
+    for item in resources:
+        full_url = resource_url if item is resource else f"urn:uuid:{uuid.uuid4()}"
+        request = {"method": "POST", "url": item["resourceType"]}
+        if item["resourceType"] == "Patient" and patient_id:
+            request["ifNoneExist"] = f"identifier={patient_id}"
+        entries.append({"fullUrl": full_url, "resource": item, "request": request})
+
+    return {"resourceType": "Bundle", "type": "transaction", "entry": entries}
+
 
 def dual_write(resource: dict) -> None:
-    """Called by write tools. Never raises, never blocks the eval."""
-    _client.create(resource)
+    """Queue a best-effort asynchronous mirror write; never raises or blocks."""
+    try:
+        resource_type = resource.get("resourceType")
+        if resource_type == "AuditEvent":
+            if resource.get("subtype", [{}])[0].get("code") in {
+                "cancel_appointment",
+                "record_no_known_allergies",
+            }:
+                _client.create(build_transaction_bundle(resource))
+                return
+            previous = getattr(_pending, "audit", None)
+            if previous is not None:
+                _client.create(build_transaction_bundle(previous))
+            _pending.audit = resource
+            _pending.risk = None
+            return
+        if resource_type == "RiskAssessment":
+            _pending.risk = resource
+            return
+
+        bundle = build_transaction_bundle(
+            resource,
+            getattr(_pending, "audit", None),
+            getattr(_pending, "risk", None),
+        )
+        _pending.audit = None
+        _pending.risk = None
+        _client.create(bundle)
+    except Exception as e:
+        logger.warning(f"Medplum mirror enqueue failed: {e}")

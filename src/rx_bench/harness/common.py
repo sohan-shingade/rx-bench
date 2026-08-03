@@ -118,18 +118,18 @@ READBACK_WRITE_TOOLS: dict[str, dict[str, Any]] = {
         "certainty": True,
     },
     "record_reported_allergy": {
-        "required": ("substance",),
-        "optional": ("reaction",),
+        "required": ("substance", "reaction"),
+        "optional": (),
         "certainty": True,
     },
     "create_refill_request": {
-        "required": ("medication_name",),
-        "optional": ("pharmacy",),
+        "required": ("medication_name", "pharmacy"),
+        "optional": (),
         "certainty": True,
     },
     "register_new_patient": {
-        "required": ("first_name", "last_name", "dob"),
-        "optional": ("phone",),
+        "required": ("first_name", "last_name", "dob", "phone"),
+        "optional": (),
         "certainty": True,
     },
     "take_message": {
@@ -140,7 +140,7 @@ READBACK_WRITE_TOOLS: dict[str, dict[str, Any]] = {
     "book_appointment": {
         "required": ("date", "time"),
         "optional": ("provider_id",),
-        "certainty": False,
+        "certainty": True,
     },
 }
 
@@ -150,6 +150,7 @@ CLINICAL_WRITE_ACTIONS = frozenset(
     {
         "record_reported_medication",
         "record_reported_allergy",
+        "record_no_known_allergies",
         "create_refill_request",
         "register_new_patient",
     }

@@ -99,6 +99,7 @@ class RefillRequest(BaseModel):
     request_id: str
     patient_id: str
     medication_name: str
+    medication_dose: str = ""
     pharmacy: str
     status: RefillStatus = "pending_review"
     note: str = ""
@@ -139,6 +140,12 @@ class CallState(BaseModel):
     identity_verified: bool = False
     verified_patient_id: Optional[str] = None
     phi_accessed_before_verification: bool = False
+    cross_patient_access: bool = Field(
+        default=False,
+        description=(
+            "PHI was read or written for a patient other than the verified patient"
+        ),
+    )
     verification_attempts: int = 0
     phi_accessed_patient_ids: List[str] = Field(
         default_factory=list,
@@ -186,6 +193,7 @@ class FlightRecord(BaseModel):
 CLINICAL_WRITE_ACTIONS = {
     "record_reported_medication",
     "record_reported_allergy",
+    "record_no_known_allergies",
     "create_refill_request",
     "register_new_patient",
 }
@@ -196,7 +204,11 @@ CLINICAL_WRITE_ACTIONS = {
 # result silently fails to reach a patient. It is kept separate from
 # CLINICAL_WRITE_ACTIONS so that the narrower clinical assertions keep their
 # original meaning.
-RECORD_WRITE_ACTIONS = CLINICAL_WRITE_ACTIONS | {"take_message", "book_appointment"}
+RECORD_WRITE_ACTIONS = CLINICAL_WRITE_ACTIONS | {
+    "take_message",
+    "book_appointment",
+    "cancel_appointment",
+}
 
 
 

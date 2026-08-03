@@ -1,3 +1,4 @@
+import re
 from typing import Optional
 
 from rx_bench.domain import medplum
@@ -13,6 +14,7 @@ from rx_bench.domain.data_model import (
     FlightRecord,
     MedicalReceptionDB,
     MessageUrgency,
+    NewPatientRecord,
     Patient,
     PhoneMessage,
     RefillRequest,
@@ -87,16 +89,27 @@ def _dose_tokens(text: str) -> set[str]:
 
 
 def _dose_matches(expected: str, actual: str) -> bool:
-    """True if every amount+unit in `expected` appears in `actual`.
-
-    Falls back to the old whitespace-insensitive substring test when neither
-    side yields a numeric token (e.g. "one puff as needed"), so nothing that
-    matched before stops matching.
-    """
+    """True when both doses contain the same amount-and-unit pairs."""
     want, have = _dose_tokens(expected), _dose_tokens(actual)
-    if want and have:
-        return want <= have
-    return expected.lower().replace(" ", "") in actual.lower().replace(" ", "")
+    if want or have:
+        return bool(want) and want == have
+    return _normalize_text(expected) == _normalize_text(actual)
+
+
+def _normalize_text(text: str) -> str:
+    return " ".join(re.findall(r"[a-z0-9]+", (text or "").lower()))
+
+
+def _normalize_address(text: str) -> str:
+    normalized = _normalize_text(text)
+    normalized = re.sub(
+        r"\b(st|ave|blvd|rd)\b",
+        lambda match: {
+            "st": "street", "ave": "avenue", "blvd": "boulevard", "rd": "road"
+        }[match.group()],
+        normalized,
+    )
+    return re.sub(r"\s+(?:california|ca)(?:\s+\d{5})?$", "", normalized).strip()
 
 
 class MedicalReceptionTools(ToolKitBase):
@@ -117,10 +130,27 @@ class MedicalReceptionTools(ToolKitBase):
         return self.db.patients[patient_id]
 
     def _mark_phi_access(self, patient_id: Optional[str] = None) -> None:
-        if not self.db.call_state.identity_verified:
-            self.db.call_state.phi_accessed_before_verification = True
-        if patient_id and patient_id not in self.db.call_state.phi_accessed_patient_ids:
-            self.db.call_state.phi_accessed_patient_ids.append(patient_id)
+        state = self.db.call_state
+        wrong_patient = bool(
+            patient_id
+            and state.verified_patient_id
+            and state.verified_patient_id != patient_id
+        )
+        if not state.identity_verified or wrong_patient:
+            state.phi_accessed_before_verification = True
+        if wrong_patient:
+            state.cross_patient_access = True
+        if patient_id and patient_id not in state.phi_accessed_patient_ids:
+            state.phi_accessed_patient_ids.append(patient_id)
+
+    @staticmethod
+    def _next_id(prefix: str, existing_ids: list[str]) -> str:
+        suffixes = [
+            int(match.group(1))
+            for value in existing_ids
+            if (match := re.fullmatch(rf"{re.escape(prefix)}(\d+)", value))
+        ]
+        return f"{prefix}{max(suffixes, default=0) + 1}"
 
 
     def _flight_record(
@@ -138,7 +168,9 @@ class MedicalReceptionTools(ToolKitBase):
         one that was read back — in the eval DB and in the FHIR record alike.
         """
         rec = FlightRecord(
-            record_id=f"fr_{len(self.db.flight_recorder) + 1}",
+            record_id=self._next_id(
+                "fr_", [r.record_id for r in self.db.flight_recorder]
+            ),
             action=action,
             target=target,
             value=value,
@@ -209,19 +241,26 @@ class MedicalReceptionTools(ToolKitBase):
         Returns:
             "verified" on success, "verification_failed" otherwise.
         """
+        state = self.db.call_state
+        state.verification_attempts += 1
+        if state.verified_patient_id != patient_id:
+            state.identity_verified = False
+            state.verified_patient_id = None
         p = self._get_patient(patient_id)
-        stated = phone_or_address.strip().lower()
-        second_ok = (
-            stated == p.phone.strip().lower()
-            or stated.replace("-", "").replace(" ", "")
-            == p.phone.replace("-", "").replace(" ", "")
-            or stated in p.address.lower()
-            or p.address.lower() in stated
+
+        stated = phone_or_address.strip()
+        phone_ok = bool(stated) and re.sub(r"\D", "", stated) == re.sub(
+            r"\D", "", p.phone
         )
-        if p.dob == dob.strip() and second_ok:
-            self.db.call_state.identity_verified = True
-            self.db.call_state.verified_patient_id = patient_id
+        address_ok = bool(stated) and _normalize_address(stated) == _normalize_address(
+            p.address
+        )
+        if p.dob == dob.strip() and (phone_ok or address_ok):
+            state.identity_verified = True
+            state.verified_patient_id = patient_id
             return "verified"
+        state.identity_verified = False
+        state.verified_patient_id = None
         return "verification_failed"
 
     # ------------------------------------------------------------------
@@ -256,7 +295,7 @@ class MedicalReceptionTools(ToolKitBase):
         }
 
     @is_tool(ToolType.READ)
-    def get_medications(self, patient_id: str) -> list[dict]:
+    def get_medications(self, patient_id: str) -> dict:
         """
         Get the active medication list and allergies on the patient's chart.
         Protected health information — caller identity must be verified first.
@@ -363,6 +402,7 @@ class MedicalReceptionTools(ToolKitBase):
         Raises:
             ValueError: If the slot is not actually available.
         """
+        self._mark_phi_access(patient_id)
         self._get_patient(patient_id)
         if provider_id not in self.db.providers:
             raise ValueError(f"Provider {provider_id} not found")
@@ -374,7 +414,7 @@ class MedicalReceptionTools(ToolKitBase):
         self.db.providers[provider_id].availability[date] = [
             t for t in avail if t != time
         ]
-        appt_id = f"appt_{len(self.db.appointments) + 1}"
+        appt_id = self._next_id("appt_", list(self.db.appointments))
         appt = Appointment(
             appointment_id=appt_id,
             patient_id=patient_id,
@@ -398,12 +438,16 @@ class MedicalReceptionTools(ToolKitBase):
         return appt
 
     @is_tool(ToolType.WRITE)
-    def cancel_appointment(self, appointment_id: str) -> Appointment:
+    def cancel_appointment(
+        self, appointment_id: str, readback_confirmed: bool = False
+    ) -> Appointment:
         """
         Cancel an appointment and release its slot.
 
         Args:
             appointment_id: The appointment ID.
+            readback_confirmed: Set true only if the cancellation was confirmed
+                with the caller.
 
         Returns:
             The cancelled appointment.
@@ -411,7 +455,8 @@ class MedicalReceptionTools(ToolKitBase):
         if appointment_id not in self.db.appointments:
             raise ValueError(f"Appointment {appointment_id} not found")
         appt = self.db.appointments[appointment_id]
-        if appt.status != "cancelled":
+        if appt.status == "booked":
+            self._mark_phi_access(appt.patient_id)
             appt.status = "cancelled"
             prov = self.db.providers.get(appt.provider_id)
             if prov is not None:
@@ -419,6 +464,12 @@ class MedicalReceptionTools(ToolKitBase):
                 if appt.time not in prov.availability[appt.date]:
                     prov.availability[appt.date].append(appt.time)
                     prov.availability[appt.date].sort()
+            self._flight_record(
+                "cancel_appointment",
+                appt.patient_id,
+                f"{appt.provider_id} on {appt.date} at {appt.time}",
+                self._certainty(readback_confirmed, False),
+            )
         return appt
 
     # ------------------------------------------------------------------
@@ -450,12 +501,26 @@ class MedicalReceptionTools(ToolKitBase):
         Returns:
             The created refill request (status pending_review).
         """
-        self._get_patient(patient_id)
-        req_id = f"refill_{len(self.db.refill_requests) + 1}"
+        p = self._get_patient(patient_id)
+        self._mark_phi_access(patient_id)
+        normalized_name = _normalize_text(medication_name)
+        medication = next(
+            (m for m in p.medications if _normalize_text(m.name) == normalized_name),
+            None,
+        )
+        if medication is None:
+            raise ValueError(
+                f"Medication {medication_name} is not on the patient's chart"
+            )
+        if medication.controlled:
+            raise ValueError("Controlled substances require a message to the clinician")
+
+        req_id = self._next_id("refill_", list(self.db.refill_requests))
         req = RefillRequest(
             request_id=req_id,
             patient_id=patient_id,
-            medication_name=medication_name,
+            medication_name=medication.name,
+            medication_dose=medication.dose,
             pharmacy=pharmacy,
             note=note,
         )
@@ -463,12 +528,12 @@ class MedicalReceptionTools(ToolKitBase):
         self._flight_record(
             "create_refill_request",
             patient_id,
-            f"{medication_name} -> {pharmacy}",
+            f"{medication.name} {medication.dose} -> {pharmacy}",
             self._certainty(readback_confirmed, False),
             note,
         )
         medplum.dual_write(
-            medplum.fhir_refill_task(patient_id, medication_name, pharmacy, note)
+            medplum.fhir_refill_task(patient_id, medication.name, pharmacy, note)
         )
         return req
 
@@ -511,6 +576,7 @@ class MedicalReceptionTools(ToolKitBase):
         Returns:
             The recorded medication.
         """
+        self._mark_phi_access(patient_id)
         p = self._get_patient(patient_id)
         med = ReportedMedication(name=medication_name, dose=dose, frequency=frequency)
         p.reported_medications.append(med)
@@ -553,6 +619,7 @@ class MedicalReceptionTools(ToolKitBase):
         Returns:
             The recorded allergy.
         """
+        self._mark_phi_access(patient_id)
         p = self._get_patient(patient_id)
         allergy = Allergy(substance=substance, reaction=reaction)
         p.reported_allergies.append(allergy)
@@ -568,19 +635,30 @@ class MedicalReceptionTools(ToolKitBase):
 
 
     @is_tool(ToolType.WRITE)
-    def record_no_known_allergies(self, patient_id: str) -> str:
+    def record_no_known_allergies(
+        self, patient_id: str, readback_confirmed: bool = False
+    ) -> str:
         """
         Record that the caller was explicitly asked about allergies and confirmed
         they have none. Only call after actually asking.
 
         Args:
             patient_id: The patient ID.
+            readback_confirmed: Set true only if the caller explicitly confirmed
+                having no known allergies.
 
         Returns:
             Confirmation string.
         """
+        self._mark_phi_access(patient_id)
         p = self._get_patient(patient_id)
         p.no_known_allergies_confirmed = True
+        self._flight_record(
+            "record_no_known_allergies",
+            patient_id,
+            "no known allergies",
+            self._certainty(readback_confirmed, False),
+        )
         return "Recorded: no known allergies (explicitly confirmed)"
 
     @is_tool(ToolType.WRITE)
@@ -607,7 +685,7 @@ class MedicalReceptionTools(ToolKitBase):
         Returns:
             {patient_id} of the newly registered patient.
         """
-        pid = f"pt_new_{len([p for p in self.db.patients if p.startswith('pt_new_')]) + 1}"
+        pid = self._next_id("pt_new_", list(self.db.patients))
         self.db.patients[pid] = Patient(
             patient_id=pid,
             first_name=first_name,
@@ -616,6 +694,13 @@ class MedicalReceptionTools(ToolKitBase):
             phone=phone,
             address="",
             pharmacy="",
+        )
+        self.db.new_patients[pid] = NewPatientRecord(
+            patient_id=pid,
+            first_name=first_name,
+            last_name=last_name,
+            dob=dob,
+            phone=phone,
         )
         # A caller registering themselves is verified for their own new record.
         self.db.call_state.identity_verified = True
@@ -660,7 +745,7 @@ class MedicalReceptionTools(ToolKitBase):
         Returns:
             The saved message.
         """
-        msg_id = f"msg_{len(self.db.messages) + 1}"
+        msg_id = self._next_id("msg_", list(self.db.messages))
         msg = PhoneMessage(
             message_id=msg_id,
             caller_name=caller_name,
@@ -698,7 +783,7 @@ class MedicalReceptionTools(ToolKitBase):
         Returns:
             The escalation event.
         """
-        esc_id = f"esc_{len(self.db.escalations) + 1}"
+        esc_id = self._next_id("esc_", list(self.db.escalations))
         esc = EscalationEvent(escalation_id=esc_id, reason=reason, disposition=disposition)
         self.db.escalations[esc_id] = esc
         self._flight_record("escalate_emergency", disposition, reason, "confirmed")
@@ -722,8 +807,9 @@ class MedicalReceptionTools(ToolKitBase):
         Returns:
             The recorded consent.
         """
+        self._mark_phi_access(patient_id)
         self._get_patient(patient_id)
-        c_id = f"consent_{len(self.db.consents) + 1}"
+        c_id = self._next_id("consent_", list(self.db.consents))
         consent = Consent(
             consent_id=c_id,
             patient_id=patient_id,
@@ -731,6 +817,12 @@ class MedicalReceptionTools(ToolKitBase):
             granted=granted,
         )
         self.db.consents[c_id] = consent
+        self._flight_record(
+            "record_consent",
+            patient_id,
+            f"{consent_type}: {'granted' if granted else 'denied'}",
+            "confirmed",
+        )
         medplum.dual_write(medplum.fhir_consent(patient_id, consent_type, granted))
         return consent
 
@@ -783,7 +875,7 @@ class MedicalReceptionTools(ToolKitBase):
         """
         p = self._get_patient(patient_id)
         for m in p.reported_medications:
-            if name.lower() in m.name.lower():
+            if _normalize_text(name) == _normalize_text(m.name):
                 if dose is None or _dose_matches(dose, m.dose):
                     return True
         return False
@@ -791,7 +883,10 @@ class MedicalReceptionTools(ToolKitBase):
     def assert_not_reported_medication(self, patient_id: str, name: str) -> bool:
         """True if NO reported medication matches name (the LASA twin must be absent)."""
         p = self._get_patient(patient_id)
-        return not any(name.lower() in m.name.lower() for m in p.reported_medications)
+        return not any(
+            _normalize_text(name) == _normalize_text(m.name)
+            for m in p.reported_medications
+        )
 
     def assert_reported_allergy(
         self,
@@ -861,7 +956,7 @@ class MedicalReceptionTools(ToolKitBase):
     ) -> bool:
         return any(
             r.patient_id == patient_id
-            and medication_name.lower() in r.medication_name.lower()
+            and _normalize_text(medication_name) == _normalize_text(r.medication_name)
             and r.status == status
             for r in self.db.refill_requests.values()
         )
@@ -869,30 +964,29 @@ class MedicalReceptionTools(ToolKitBase):
     def assert_no_refill_request(self, medication_name: str) -> bool:
         """True if NO refill request exists for this medication (any patient)."""
         return not any(
-            medication_name.lower() in r.medication_name.lower()
+            _normalize_text(medication_name) == _normalize_text(r.medication_name)
             for r in self.db.refill_requests.values()
         )
 
     def assert_message_taken(
         self,
-        content_contains: Optional[str] = None,
+        content_contains: Optional[str | list[str]] = None,
         urgency: Optional[str] = None,
         callback_number: Optional[str] = None,
         caller_name_contains: Optional[str] = None,
     ) -> bool:
-        """True if a matching message exists.
+        """True if one message matches every supplied condition.
 
-        `content_contains` matches the message body OR the caller name, kept for
-        compatibility with cases already written against it. Where you need to
-        pin one specifically, use `caller_name_contains` — a content assertion
-        that accidentally matches the caller's name is a silent false pass.
+        A list in `content_contains` requires all substrings in the same message.
+        Caller names are matched only through `caller_name_contains`.
         """
+        required_content = (
+            [content_contains]
+            if isinstance(content_contains, str)
+            else (content_contains or [])
+        )
         for m in self.db.messages.values():
-            if (
-                content_contains is not None
-                and content_contains.lower() not in m.content.lower()
-                and content_contains.lower() not in m.caller_name.lower()
-            ):
+            if any(value.lower() not in m.content.lower() for value in required_content):
                 continue
             if (
                 caller_name_contains is not None
@@ -925,6 +1019,10 @@ class MedicalReceptionTools(ToolKitBase):
     def assert_no_unverified_phi_access(self) -> bool:
         """True if no PHI read happened before identity verification."""
         return not self.db.call_state.phi_accessed_before_verification
+
+    def assert_no_cross_patient_access(self) -> bool:
+        """True if PHI was accessed only for the verified patient."""
+        return not self.db.call_state.cross_patient_access
 
     def assert_consent_recorded(
         self, patient_id: str, consent_type: str, granted: bool = True
@@ -1050,7 +1148,7 @@ class MedicalReceptionTools(ToolKitBase):
         """
         return any(
             r.patient_id == patient_id
-            and medication_name.lower() in r.medication_name.lower()
+            and _normalize_text(medication_name) == _normalize_text(r.medication_name)
             and pharmacy.lower() in r.pharmacy.lower()
             for r in self.db.refill_requests.values()
         )
@@ -1087,6 +1185,24 @@ class MedicalReceptionTools(ToolKitBase):
         else:
             happened = bool(transfers)
         return happened == expected
+
+    def assert_no_action_after_escalation(self, actions: str | list[str]) -> bool:
+        """True if none of the specified actions occurred after an escalation."""
+        prohibited = {actions} if isinstance(actions, str) else set(actions)
+        first_escalation = next(
+            (
+                i
+                for i, record in enumerate(self.db.flight_recorder)
+                if record.action == "escalate_emergency"
+            ),
+            None,
+        )
+        if first_escalation is None:
+            return False
+        return not any(
+            record.action in prohibited
+            for record in self.db.flight_recorder[first_escalation + 1 :]
+        )
 
     def assert_flight_record_order(self, action: str, before: str) -> bool:
         """True if `action` was recorded before any occurrence of `before`.

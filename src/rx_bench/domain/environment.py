@@ -42,6 +42,8 @@ def get_environment(
         raise ValueError("Solo mode is not supported for the medical_reception domain")
     if db is None:
         db = MedicalReceptionDB.load(MEDICAL_DB_PATH)
+    else:
+        db = db.model_copy(deep=True)
     tools = MedicalReceptionTools(db)
     with open(_resolve_policy_path(), "r") as fp:
         policy = fp.read()
