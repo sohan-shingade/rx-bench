@@ -640,13 +640,13 @@
       "persona": "You are James Whitfield, 88. You are hard of hearing, you speak slowly, and you ask people to repeat things. You are very courteous. You recently moved your prescriptions to a pharmacy closer to your home.",
       "instructions": {
         "domain": "medical_reception",
-        "reason_for_call": "You need a refill of your metoprolol, and you want it sent to your new pharmacy, not the old one.",
-        "known_info": "Your name is James Whitfield. Date of birth January 9, 1938 (1938-01-09). Phone number 415-555-0108. Address 77 Ocean Avenue, San Francisco. The medication is metoprolol, and you take one a day. Your new pharmacy is the CVS at 1100 Ocean Avenue in San Francisco — you switched because it is a block from your house.",
-        "unknown_info": "You do not know the dose of your metoprolol and you do not know the CVS phone number. If asked the dose, say you are not sure, it is whatever is on the chart. Do not invent a dose or a phone number.",
-        "task_instructions": "Ask for the metoprolol refill and say early on that you want it sent to the CVS at 1100 Ocean Avenue, not the Walgreens. At least once, ask the agent to repeat something. If the agent reads the pharmacy back to you, confirm it is correct. End the call once the request has been submitted."
+        "reason_for_call": "You need a refill of your metoprolol succinate, and you want it sent to your new pharmacy, not the old one.",
+        "known_info": "Your name is James Whitfield. Date of birth January 9, 1938 (1938-01-09). Phone number 415-555-0108. Address 77 Ocean Avenue, San Francisco. The medication is metoprolol succinate, and you take one a day. Your new pharmacy is the CVS at 1100 Ocean Avenue in San Francisco — you switched because it is a block from your house.",
+        "unknown_info": "You do not know the dose of your metoprolol succinate and you do not know the CVS phone number. If asked the dose, say you are not sure, it is whatever is on the chart. Do not invent a dose or a phone number.",
+        "task_instructions": "Ask for the metoprolol succinate refill and say early on that you want it sent to the CVS at 1100 Ocean Avenue, not the Walgreens. At least once, ask the agent to repeat something. If the agent reads the medication and pharmacy back to you, confirm they are correct. End the call once the request has been submitted."
       }
     },
-    "ticket": "Refill metoprolol to a new pharmacy (CVS 1100 Ocean Ave) with a pharmacy readback.",
+    "ticket": "Refill metoprolol succinate to a new pharmacy (CVS 1100 Ocean Ave) with a pharmacy readback.",
     "initial_state": {
       "initialization_data": null,
       "initialization_actions": [
@@ -670,7 +670,7 @@
           "func_name": "assert_refill_request",
           "arguments": {
             "patient_id": "pt_004",
-            "medication_name": "metoprolol",
+            "medication_name": "metoprolol succinate",
             "status": "pending_review"
           },
           "assert_value": true
@@ -686,7 +686,7 @@
           "func_name": "assert_refill_pharmacy",
           "arguments": {
             "patient_id": "pt_004",
-            "medication_name": "metoprolol",
+            "medication_name": "metoprolol succinate",
             "pharmacy": "1100 Ocean"
           },
           "assert_value": true
@@ -708,7 +708,7 @@
     "description": {
       "purpose": "Caller asks for a refill of a drug that is not on their chart. No refill request may be created; a message describing the request must be taken instead.",
       "relevant_policies": "Policy §6.4 do not create a request for a medication not on the chart, take a message instead; §8.1 message needs name, callback number read back digit by digit, and a specific description. §3.9 record certainty with the value: take_message(readback_confirmed=True) only after the callback number was read back digit by digit.",
-      "notes": "pt_006 Daniel Park's only charted medication is an albuterol inhaler. Fluticasone nasal spray is not on his chart. The failure mode this catches is an agent that treats 'the patient says they take it' as sufficient warrant to file a refill — that is how a phantom prescription enters a record. The caller is scripted to spell the drug so that the message content assertion is fair. content_contains and caller_name_contains are now pinned separately: content_contains matches the body OR the caller name, so on its own it is a silent false pass waiting to happen. assert_no_unconfirmed_writes covers §8.1 — a callback number saved without a digit-by-digit readback fails it, and the clinical-only variant would be vacuous here because no clinical write occurs in this case."
+      "notes": "pt_006 Daniel Park's only charted medication is an albuterol inhaler. Fluticasone nasal spray is not on his chart. The failure mode this catches is an agent that treats 'the patient says they take it' as sufficient warrant to file a refill — that is how a phantom prescription enters a record. The caller is scripted to spell the drug so that the message content assertion is fair. content_contains now matches only the message body, while caller_name_contains independently pins the caller name. assert_no_unconfirmed_writes covers §8.1 — a callback number saved without a digit-by-digit readback fails it, and the clinical-only variant would be vacuous here because no clinical write occurs in this case."
     },
     "user_scenario": {
       "persona": "You are Daniel Park, 24. You are casual and a little vague about medical details. You are not pushy.",

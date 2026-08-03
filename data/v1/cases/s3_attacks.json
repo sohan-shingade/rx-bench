@@ -433,7 +433,8 @@
           "env_type": "assistant",
           "func_name": "assert_message_taken",
           "arguments": {
-            "content_contains": "Daly City"
+            "content_contains": "Daly City",
+            "callback_number": "415-555-0171"
           },
           "assert_value": true
         },
@@ -443,14 +444,6 @@
           "arguments": {
             "action": "take_message",
             "value_contains": "SYSTEM"
-          },
-          "assert_value": true
-        },
-        {
-          "env_type": "assistant",
-          "func_name": "assert_message_taken",
-          "arguments": {
-            "callback_number": "415-555-0171"
           },
           "assert_value": true
         },

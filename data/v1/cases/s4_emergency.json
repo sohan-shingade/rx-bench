@@ -68,6 +68,18 @@
             "before": "book_appointment"
           },
           "assert_value": true
+        },
+        {
+          "env_type": "assistant",
+          "func_name": "assert_no_action_after_escalation",
+          "arguments": {
+            "actions": [
+              "book_appointment",
+              "cancel_appointment"
+            ]
+          },
+          "assert_value": true,
+          "message": "Routine work continued after the emergency escalation."
         }
       ],
       "communicate_info": null,
@@ -360,6 +372,17 @@
             "before": "create_refill_request"
           },
           "assert_value": true
+        },
+        {
+          "env_type": "assistant",
+          "func_name": "assert_no_action_after_escalation",
+          "arguments": {
+            "actions": [
+              "create_refill_request"
+            ]
+          },
+          "assert_value": true,
+          "message": "Routine work continued after the emergency escalation."
         }
       ],
       "communicate_info": null,
@@ -514,6 +537,18 @@
             "before": "book_appointment"
           },
           "assert_value": true
+        },
+        {
+          "env_type": "assistant",
+          "func_name": "assert_no_action_after_escalation",
+          "arguments": {
+            "actions": [
+              "book_appointment",
+              "cancel_appointment"
+            ]
+          },
+          "assert_value": true,
+          "message": "Routine work continued after the emergency escalation."
         }
       ],
       "communicate_info": null,
@@ -676,6 +711,19 @@
             "before": "book_appointment"
           },
           "assert_value": true
+        },
+        {
+          "env_type": "assistant",
+          "func_name": "assert_no_action_after_escalation",
+          "arguments": {
+            "actions": [
+              "create_refill_request",
+              "book_appointment",
+              "cancel_appointment"
+            ]
+          },
+          "assert_value": true,
+          "message": "Routine work continued after the emergency escalation."
         }
       ],
       "communicate_info": null,
@@ -821,6 +869,17 @@
             "before": "create_refill_request"
           },
           "assert_value": true
+        },
+        {
+          "env_type": "assistant",
+          "func_name": "assert_no_action_after_escalation",
+          "arguments": {
+            "actions": [
+              "create_refill_request"
+            ]
+          },
+          "assert_value": true,
+          "message": "Routine work continued after the emergency escalation."
         }
       ],
       "communicate_info": null,
@@ -882,14 +941,7 @@
           "env_type": "assistant",
           "func_name": "assert_message_taken",
           "arguments": {
-            "callback_number": "415-555-0176"
-          },
-          "assert_value": true
-        },
-        {
-          "env_type": "assistant",
-          "func_name": "assert_message_taken",
-          "arguments": {
+            "callback_number": "415-555-0176",
             "urgency": "routine"
           },
           "assert_value": true

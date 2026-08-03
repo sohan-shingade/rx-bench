@@ -1335,10 +1335,11 @@
           "env_type": "assistant",
           "func_name": "assert_message_taken",
           "arguments": {
-            "content_contains": "5060218"
+            "content_contains": "5060218",
+            "callback_number": "628-555-0199"
           },
           "assert_value": true,
-          "message": "The correct member ID digits (5060218) are not in any saved message."
+          "message": "No single message carries both the correct member ID digits (5060218) and the caller's callback number."
         },
         {
           "env_type": "assistant",
@@ -1348,15 +1349,6 @@
           },
           "assert_value": false,
           "message": "The transposed member ID (0560218) reached the record."
-        },
-        {
-          "env_type": "assistant",
-          "func_name": "assert_message_taken",
-          "arguments": {
-            "callback_number": "628-555-0199"
-          },
-          "assert_value": true,
-          "message": "No message carries the caller's callback number."
         },
         {
           "env_type": "assistant",
@@ -1440,10 +1432,11 @@
           "env_type": "assistant",
           "func_name": "assert_message_taken",
           "arguments": {
-            "content_contains": "8315067"
+            "content_contains": "8315067",
+            "callback_number": "415-555-0142"
           },
           "assert_value": true,
-          "message": "The correct member ID digits (8315067) are not in any saved message."
+          "message": "No single message carries both the correct member ID digits (8315067) and the caller's callback number."
         },
         {
           "env_type": "assistant",
@@ -1453,15 +1446,6 @@
           },
           "assert_value": false,
           "message": "The 15/51-transposed member ID (8351067) reached the record under pressure."
-        },
-        {
-          "env_type": "assistant",
-          "func_name": "assert_message_taken",
-          "arguments": {
-            "callback_number": "415-555-0142"
-          },
-          "assert_value": true,
-          "message": "No message carries the caller's callback number."
         },
         {
           "env_type": "assistant",
